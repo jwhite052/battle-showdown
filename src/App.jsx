@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Dice5, Swords, RotateCcw, Trophy, Sparkles } from "lucide-react";
+import { Dice5, Swords, RotateCcw, Trophy, Sparkles, Play } from "lucide-react";
 import "./styles.css";
 
 const characters = [
@@ -25,9 +25,10 @@ const spaceLabels = {
   mystery: "?"
 };
 
-function makePlayers(count) {
+function makePlayers(count, customNames = {}) {
   return characters.slice(0, count).map((c) => ({
     ...c,
+    customName: customNames[c.id] || c.name,
     position: 0,
     trophies: 0,
     skip: false,
@@ -40,12 +41,16 @@ function roll(sides = 6) {
 
 export default function App() {
   const [playerCount, setPlayerCount] = useState(4);
+  const [customNames, setCustomNames] = useState(() =>
+    Object.fromEntries(characters.map(c => [c.id, c.name]))
+  );
   const [players, setPlayers] = useState(() => makePlayers(4));
   const [current, setCurrent] = useState(0);
   const [dice, setDice] = useState(null);
   const [message, setMessage] = useState("Choose players, then roll to begin Battle Showdown!");
   const [log, setLog] = useState(["Welcome to Battle Showdown!"]);
   const [winner, setWinner] = useState(null);
+  const [gameStarted, setGameStarted] = useState(false);
 
   const currentPlayer = players[current];
 
@@ -62,17 +67,28 @@ export default function App() {
   }
 
   function reset(count = playerCount) {
-    setPlayers(makePlayers(count));
+    setPlayers(makePlayers(count, customNames));
     setCurrent(0);
     setDice(null);
     setWinner(null);
-    setMessage("Roll to begin Battle Showdown!");
+    setGameStarted(false);
+    setMessage("Choose players, then roll to begin Battle Showdown!");
     setLog(["New game started!"]);
   }
 
   function changeCount(count) {
     setPlayerCount(count);
     reset(count);
+  }
+
+  function startGame() {
+    setPlayers(makePlayers(playerCount, customNames));
+    setGameStarted(true);
+    setLog(["Game started!"]);
+  }
+
+  function updateName(id, name) {
+    setCustomNames(prev => ({ ...prev, [id]: name || characters.find(c => c.id === id)?.name }));
   }
 
   function nextTurn(updatedPlayers = players) {
@@ -90,8 +106,8 @@ export default function App() {
       p.skip = false;
       updated[current] = p;
       setPlayers(updated);
-      setMessage(`${p.name} had to skip this turn.`);
-      addLog(`${p.emoji} ${p.name} skipped a turn.`);
+      setMessage(`${p.customName} had to skip this turn.`);
+      addLog(`${p.emoji} ${p.customName} skipped a turn.`);
       nextTurn(updated);
       return;
     }
@@ -103,7 +119,7 @@ export default function App() {
     p.position = newPosition;
     let type = board[newPosition];
 
-    let turnMessage = `${p.name} rolled ${d} and moved to space ${newPosition}.`;
+    let turnMessage = `${p.customName} rolled ${d} and moved to space ${newPosition}.`;
 
     if (type === "boost") {
       p.position = Math.min(p.position + 2, board.length - 1);
@@ -142,7 +158,7 @@ export default function App() {
           ...opponent,
           position: Math.max(opponent.position - 2, 0)
         };
-        turnMessage += ` Battle! ${p.name} beat ${opponent.name} ${playerScore}-${opponentScore} and won a trophy.`;
+        turnMessage += ` Battle! ${p.customName} beat ${updated[opponentIndex].customName} ${playerScore}-${opponentScore} and won a trophy.`;
       } else {
         updated[current] = {
           ...p,
@@ -152,7 +168,7 @@ export default function App() {
           ...opponent,
           trophies: opponent.trophies + 1
         };
-        turnMessage += ` Battle! ${opponent.name} beat ${p.name} ${opponentScore}-${playerScore}. ${p.name} moves back 2.`;
+        turnMessage += ` Battle! ${updated[opponentIndex].customName} beat ${p.customName} ${opponentScore}-${playerScore}. ${p.customName} moves back 2.`;
       }
     }
 
@@ -160,8 +176,8 @@ export default function App() {
       const finalScore = roll(20) + p.trophies + p.power;
       const finalWinner = { ...p, finalScore };
       setWinner(finalWinner);
-      setMessage(`${p.name} reached the Final Battle and wins Battle Showdown! Final score: ${finalScore}`);
-      addLog(`🏆 ${p.name} wins Battle Showdown!`);
+      setMessage(`${p.customName} reached the Final Battle and wins Battle Showdown! Final score: ${finalScore}`);
+      addLog(`🏆 ${p.customName} wins Battle Showdown!`);
       setPlayers(updated);
       return;
     }
@@ -195,16 +211,41 @@ export default function App() {
 
       {winner && (
         <div className="winner">
-          <Trophy /> {winner.emoji} {winner.name} wins Battle Showdown!
+          <Trophy /> {winner.emoji} {winner.customName} wins Battle Showdown!
         </div>
       )}
 
+      {!gameStarted ? (
+        <main className="layout">
+          <section className="panel board-panel">
+            <h2>Customize Your Players</h2>
+            <div className="name-setup">
+              {characters.slice(0, playerCount).map((c) => (
+                <div key={c.id} className="name-input-row">
+                  <div className="avatar" style={{ background: c.color }}>{c.emoji}</div>
+                  <input
+                    type="text"
+                    placeholder={c.name}
+                    value={customNames[c.id] || ""}
+                    onChange={(e) => updateName(c.id, e.target.value)}
+                    className="name-input"
+                  />
+                  <span className="power-badge">Power +{c.power}</span>
+                </div>
+              ))}
+            </div>
+            <button className="roll start-btn" onClick={startGame}>
+              <Play /> Start Game
+            </button>
+          </section>
+        </main>
+      ) : (
       <main className="layout">
         <section className="panel board-panel">
           <div className="turn-card">
             <div>
               <span>Current Turn</span>
-              <strong style={{ color: currentPlayer.color }}>{currentPlayer.emoji} {currentPlayer.name}</strong>
+              <strong style={{ color: currentPlayer.color }}>{currentPlayer.emoji} {currentPlayer.customName}</strong>
             </div>
             <button className="roll" onClick={handleRoll}>
               <Dice5 /> Roll Dice
@@ -223,7 +264,7 @@ export default function App() {
                 <strong>{spaceLabels[type]}</strong>
                 <div className="tokens">
                   {(playerBySpace[index] || []).map((p) => (
-                    <span key={p.id} title={p.name} style={{ background: p.color }}>
+                    <span key={p.id} title={p.customName} style={{ background: p.color }}>
                       {p.emoji}
                     </span>
                   ))}
@@ -239,7 +280,7 @@ export default function App() {
             <div className={`player ${index === current ? "active" : ""}`} key={p.id}>
               <div className="avatar" style={{ background: p.color }}>{p.emoji}</div>
               <div>
-                <strong>{p.name}</strong>
+                <strong>{p.customName}</strong>
                 <p>Space {p.position} • Power +{p.power}</p>
               </div>
               <div className="trophies">🏆 {p.trophies}</div>
@@ -260,6 +301,7 @@ export default function App() {
           </div>
         </aside>
       </main>
+      )}
     </div>
   );
 }
