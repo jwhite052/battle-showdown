@@ -52,6 +52,14 @@ export default function App() {
   const [winner, setWinner] = useState(null);
   const [gameStarted, setGameStarted] = useState(false);
 
+  // Battle state
+  const [battleMode, setBattleMode] = useState(false);
+  const [battleAttacker, setBattleAttacker] = useState(null);
+  const [battleDefender, setBattleDefender] = useState(null);
+  const [attackerRoll, setAttackerRoll] = useState(null);
+  const [defenderRoll, setDefenderRoll] = useState(null);
+  const [battlePhase, setBattlePhase] = useState(null); // 'attacker' or 'defender'
+
   const currentPlayer = players[current];
 
   const playerBySpace = useMemo(() => {
@@ -72,6 +80,12 @@ export default function App() {
     setDice(null);
     setWinner(null);
     setGameStarted(false);
+    setBattleMode(false);
+    setBattleAttacker(null);
+    setBattleDefender(null);
+    setAttackerRoll(null);
+    setDefenderRoll(null);
+    setBattlePhase(null);
     setMessage("Choose players, then roll to begin Battle Showdown!");
     setLog(["New game started!"]);
   }
@@ -96,8 +110,94 @@ export default function App() {
     setCurrent(next);
   }
 
+  function resolveBattle(attackerScore, defenderScore, attackerPlayer, defenderPlayer, attackerIndex, defenderIndex, updated) {
+    let turnMessage = "";
+
+    if (attackerScore >= defenderScore) {
+      updated[attackerIndex] = {
+        ...updated[attackerIndex],
+        trophies: updated[attackerIndex].trophies + 1
+      };
+      updated[defenderIndex] = {
+        ...updated[defenderIndex],
+        position: Math.max(updated[defenderIndex].position - 2, 0)
+      };
+      turnMessage = `Battle! ${attackerPlayer.customName} beat ${defenderPlayer.customName} ${attackerScore}-${defenderScore} and won a trophy!`;
+    } else {
+      updated[attackerIndex] = {
+        ...updated[attackerIndex],
+        position: Math.max(updated[attackerIndex].position - 2, 0)
+      };
+      updated[defenderIndex] = {
+        ...updated[defenderIndex],
+        trophies: updated[defenderIndex].trophies + 1
+      };
+      turnMessage = `Battle! ${defenderPlayer.customName} beat ${attackerPlayer.customName} ${defenderScore}-${attackerScore}. ${attackerPlayer.customName} moves back 2.`;
+    }
+
+    return turnMessage;
+  }
+
+  function handleBattleRoll() {
+    let updated = [...players];
+
+    if (battlePhase === 'attacker') {
+      const d = roll(10);
+      setAttackerRoll(d);
+      const totalScore = d + battleAttacker.power + battleAttacker.trophies;
+      setMessage(`${battleAttacker.customName} rolled ${d} + ${battleAttacker.power} power + ${battleAttacker.trophies} trophies = ${totalScore}. ${battleDefender.customName}'s turn to roll!`);
+      setBattlePhase('defender');
+    } else if (battlePhase === 'defender') {
+      const d = roll(10);
+      setDefenderRoll(d);
+      const defenderScore = d + battleDefender.power + battleDefender.trophies;
+      const attackerScore = (attackerRoll || 0) + battleAttacker.power + battleAttacker.trophies;
+
+      const attackerIndex = updated.findIndex(p => p.id === battleAttacker.id);
+      const defenderIndex = updated.findIndex(p => p.id === battleDefender.id);
+
+      const battleResult = resolveBattle(
+        attackerScore,
+        defenderScore,
+        battleAttacker,
+        battleDefender,
+        attackerIndex,
+        defenderIndex,
+        updated
+      );
+
+      setPlayers(updated);
+      setMessage(battleResult);
+      addLog(battleResult);
+
+      // Check for winner after battle
+      if (updated[attackerIndex].position >= board.length - 1) {
+        const finalScore = roll(20) + updated[attackerIndex].trophies + updated[attackerIndex].power;
+        setWinner({ ...updated[attackerIndex], finalScore });
+        setMessage(`${updated[attackerIndex].customName} reached the Final Battle and wins!`);
+        addLog(`🏆 ${updated[attackerIndex].customName} wins Battle Showdown!`);
+      } else if (updated[defenderIndex].position >= board.length - 1) {
+        const finalScore = roll(20) + updated[defenderIndex].trophies + updated[defenderIndex].power;
+        setWinner({ ...updated[defenderIndex], finalScore });
+        setMessage(`${updated[defenderIndex].customName} reached the Final Battle and wins!`);
+        addLog(`🏆 ${updated[defenderIndex].customName} wins Battle Showdown!`);
+      } else {
+        // Continue game - next player's turn
+        nextTurn(updated);
+      }
+
+      // Reset battle state
+      setBattleMode(false);
+      setBattleAttacker(null);
+      setBattleDefender(null);
+      setAttackerRoll(null);
+      setDefenderRoll(null);
+      setBattlePhase(null);
+    }
+  }
+
   function handleRoll() {
-    if (winner) return;
+    if (winner || battleMode) return;
 
     let updated = [...players];
     let p = { ...updated[current] };
@@ -142,34 +242,23 @@ export default function App() {
     }
 
     updated[current] = p;
+    setPlayers(updated);
 
+    // Check for battle
     const opponents = updated.filter((x, i) => i !== current && x.position === p.position);
     if (board[p.position] === "battle" || opponents.length > 0) {
       const opponent = opponents[0] || updated.filter((_, i) => i !== current)[roll(updated.length - 1) - 1];
-      const opponentIndex = updated.findIndex((x) => x.id === opponent.id);
 
-      const playerScore = roll(10) + p.power + p.trophies;
-      const opponentScore = roll(10) + opponent.power + opponent.trophies;
+      setBattleMode(true);
+      setBattleAttacker(p);
+      setBattleDefender(opponent);
+      setBattlePhase('attacker');
+      setAttackerRoll(null);
+      setDefenderRoll(null);
 
-      if (playerScore >= opponentScore) {
-        p.trophies += 1;
-        updated[current] = p;
-        updated[opponentIndex] = {
-          ...opponent,
-          position: Math.max(opponent.position - 2, 0)
-        };
-        turnMessage += ` Battle! ${p.customName} beat ${updated[opponentIndex].customName} ${playerScore}-${opponentScore} and won a trophy.`;
-      } else {
-        updated[current] = {
-          ...p,
-          position: Math.max(p.position - 2, 0)
-        };
-        updated[opponentIndex] = {
-          ...opponent,
-          trophies: opponent.trophies + 1
-        };
-        turnMessage += ` Battle! ${updated[opponentIndex].customName} beat ${p.customName} ${opponentScore}-${playerScore}. ${p.customName} moves back 2.`;
-      }
+      setMessage(`⚔️ BATTLE! ${p.customName} landed on a battle space vs ${opponent.customName}! ${p.customName}, roll for battle!`);
+      addLog(`⚔️ Battle! ${p.customName} vs ${opponent.customName}`);
+      return;
     }
 
     if (p.position >= board.length - 1) {
@@ -178,7 +267,6 @@ export default function App() {
       setWinner(finalWinner);
       setMessage(`${p.customName} reached the Final Battle and wins Battle Showdown! Final score: ${finalScore}`);
       addLog(`🏆 ${p.customName} wins Battle Showdown!`);
-      setPlayers(updated);
       return;
     }
 
@@ -247,10 +335,40 @@ export default function App() {
               <span>Current Turn</span>
               <strong style={{ color: currentPlayer.color }}>{currentPlayer.emoji} {currentPlayer.customName}</strong>
             </div>
-            <button className="roll" onClick={handleRoll}>
-              <Dice5 /> Roll Dice
-            </button>
+            {battleMode ? (
+              <button className="roll battle-btn" onClick={handleBattleRoll}>
+                <Dice5 /> {battlePhase === 'attacker' ? "Attack Roll" : "Defend Roll"}
+              </button>
+            ) : (
+              <button className="roll" onClick={handleRoll}>
+                <Dice5 /> Roll Dice
+              </button>
+            )}
           </div>
+
+          {battleMode && (
+            <div className="battle-display">
+              <div className="battle-player attacker">
+                <div className="avatar" style={{ background: battleAttacker.color }}>{battleAttacker.emoji}</div>
+                <span>{battleAttacker.customName}</span>
+                {attackerRoll !== null && (
+                  <div className="battle-score">
+                    {attackerRoll} + {battleAttacker.power} + {battleAttacker.trophies} = {attackerRoll + battleAttacker.power + battleAttacker.trophies}
+                  </div>
+                )}
+              </div>
+              <div className="battle-vs">VS</div>
+              <div className="battle-player defender">
+                <div className="avatar" style={{ background: battleDefender.color }}>{battleDefender.emoji}</div>
+                <span>{battleDefender.customName}</span>
+                {defenderRoll !== null && (
+                  <div className="battle-score">
+                    {defenderRoll} + {battleDefender.power} + {battleDefender.trophies} = {defenderRoll + battleDefender.power + battleDefender.trophies}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="dice-row">
             <div className="dice">{dice || "?"}</div>

@@ -344,6 +344,65 @@ button {
   justify-content: center;
 }
 
+.battle-btn {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  box-shadow: 0 8px 0 #991b1b;
+}
+
+.battle-btn:active {
+  transform: translateY(4px);
+  box-shadow: 0 4px 0 #991b1b;
+}
+
+.battle-display {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  background: rgba(239, 68, 68, 0.15);
+  border: 2px solid rgba(239, 68, 68, 0.4);
+  border-radius: 18px;
+  padding: 16px;
+  margin: 16px 0;
+}
+
+.battle-player {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.battle-player span {
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.battle-score {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: #fde047;
+}
+
+.battle-vs {
+  font-size: 1.5rem;
+  font-weight: 900;
+  color: #ef4444;
+  text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.attacker .avatar {
+  border: 3px solid #fde047;
+}
+
+.defender .avatar {
+  border: 3px solid #60a5fa;
+}
+
 @media (max-width: 900px) {
   .hero, .layout {
     grid-template-columns: 1fr;
