@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { Dice5, Swords, RotateCcw, Trophy, Sparkles, Play, Moon, Sun, Droplets, Flame, Zap, Leaf } from "lucide-react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Dice5, Swords, RotateCcw, Trophy, Sparkles, Play, Moon, Sun, Droplets, Flame, Zap, Leaf, HelpCircle, X } from "lucide-react";
 import "./styles.css";
 
 const characters = [
@@ -17,6 +17,7 @@ const board = [
 ];
 
 const INTRO_DURATION = 2800;
+const MOVE_STEP_DURATION = 260;
 const TROPHY_WIN_COUNT = 4;
 const ELEMENT_ADVANTAGE_BONUS = 1;
 const elementStrengths = {
@@ -71,6 +72,17 @@ function getBattleScore(rollValue, player, opponent) {
   return rollValue + player.power + player.trophies + getElementBonus(player, opponent);
 }
 
+function getMovementPath(from, to) {
+  if (from === to) return [];
+
+  const direction = to > from ? 1 : -1;
+  const path = [];
+  for (let position = from + direction; direction > 0 ? position <= to : position >= to; position += direction) {
+    path.push(position);
+  }
+  return path;
+}
+
 function DiceFace({ value }) {
   if (!value) return "?";
 
@@ -113,11 +125,16 @@ export default function App() {
   const [dice, setDice] = useState(null);
   const [rolling, setRolling] = useState(false);
   const [rollingValue, setRollingValue] = useState(null);
+  const [moving, setMoving] = useState(false);
   const [message, setMessage] = useState("Choose players, then roll to begin Battle Showdown!");
   const [log, setLog] = useState(["Welcome to Battle Showdown!"]);
   const [winner, setWinner] = useState(null);
   const [gameStarted, setGameStarted] = useState(false);
   const [introActive, setIntroActive] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const [hoppingPlayerIds, setHoppingPlayerIds] = useState([]);
+  const hopTimeoutRef = useRef(null);
+  const moveTimeoutsRef = useRef([]);
 
   // Battle state
   const [battleMode, setBattleMode] = useState(false);
@@ -155,6 +172,13 @@ export default function App() {
     return () => window.clearTimeout(timeout);
   }, [introActive]);
 
+  useEffect(() => {
+    return () => {
+      window.clearTimeout(hopTimeoutRef.current);
+      moveTimeoutsRef.current.forEach(timeout => window.clearTimeout(timeout));
+    };
+  }, []);
+
   const playerBySpace = useMemo(() => {
     const map = {};
     players.forEach((p) => {
@@ -167,10 +191,57 @@ export default function App() {
     setLog((old) => [line, ...old].slice(0, 8));
   }
 
+  function triggerTokenHop(playerIds) {
+    const ids = playerIds.filter(Boolean);
+    if (!ids.length) return;
+
+    window.clearTimeout(hopTimeoutRef.current);
+    setHoppingPlayerIds(ids);
+    hopTimeoutRef.current = window.setTimeout(() => {
+      setHoppingPlayerIds([]);
+    }, 720);
+  }
+
+  function animatePlayerMovement(playerId, path, finalPlayers, onComplete) {
+    moveTimeoutsRef.current.forEach(timeout => window.clearTimeout(timeout));
+    moveTimeoutsRef.current = [];
+
+    if (!path.length) {
+      setPlayers(finalPlayers);
+      onComplete();
+      return;
+    }
+
+    setMoving(true);
+
+    path.forEach((position, index) => {
+      const timeout = window.setTimeout(() => {
+        setPlayers(prev => prev.map(player => (
+          player.id === playerId ? { ...player, position } : player
+        )));
+        triggerTokenHop([playerId]);
+
+        if (index === path.length - 1) {
+          const finalTimeout = window.setTimeout(() => {
+            setPlayers(finalPlayers);
+            setMoving(false);
+            onComplete();
+          }, MOVE_STEP_DURATION);
+          moveTimeoutsRef.current.push(finalTimeout);
+        }
+      }, MOVE_STEP_DURATION * index);
+      moveTimeoutsRef.current.push(timeout);
+    });
+  }
+
   function reset(count = playerCount) {
     setPlayers(makePlayers(count, customNames, customPowers));
     setCurrent(0);
     setDice(null);
+    setMoving(false);
+    setHoppingPlayerIds([]);
+    moveTimeoutsRef.current.forEach(timeout => window.clearTimeout(timeout));
+    moveTimeoutsRef.current = [];
     setWinner(null);
     setGameStarted(false);
     setIntroActive(false);
@@ -292,6 +363,10 @@ export default function App() {
 
     const attackerIndex = updated.findIndex(p => p.id === battleAttacker.id);
     const defenderIndex = updated.findIndex(p => p.id === battleDefender.id);
+    const previousBattlePositions = {
+      [battleAttacker.id]: updated[attackerIndex].position,
+      [battleDefender.id]: updated[defenderIndex].position
+    };
 
     const battleResult = resolveBattle(
       attackerScore,
@@ -302,40 +377,58 @@ export default function App() {
       defenderIndex,
       updated
     );
+    const movedBattlePlayers = [updated[attackerIndex], updated[defenderIndex]]
+      .filter(p => p.position !== previousBattlePositions[p.id])
+      .map(p => p.id);
 
-    setPlayers(updated);
-    setMessage(battleResult);
-    addLog(battleResult);
+    const afterBattleMove = () => {
+      setMessage(battleResult);
+      addLog(battleResult);
 
-    const trophyWinner = updated.find(p => p.trophies >= TROPHY_WIN_COUNT);
-    if (trophyWinner) {
-      setTrophyWinner(trophyWinner);
+      const trophyWinner = updated.find(p => p.trophies >= TROPHY_WIN_COUNT);
+      if (trophyWinner) {
+        setTrophyWinner(trophyWinner);
+        clearBattleState();
+        return;
+      }
+
+      // Check for winner after battle
+      if (updated[attackerIndex].position >= board.length - 1) {
+        const finalScore = roll(20) + updated[attackerIndex].trophies + updated[attackerIndex].power;
+        setWinner({ ...updated[attackerIndex], finalScore });
+        setMessage(`${updated[attackerIndex].customName} reached the Final Battle and wins!`);
+        addLog(`🏆 ${updated[attackerIndex].customName} wins Battle Showdown!`);
+      } else if (updated[defenderIndex].position >= board.length - 1) {
+        const finalScore = roll(20) + updated[defenderIndex].trophies + updated[defenderIndex].power;
+        setWinner({ ...updated[defenderIndex], finalScore });
+        setMessage(`${updated[defenderIndex].customName} reached the Final Battle and wins!`);
+        addLog(`🏆 ${updated[defenderIndex].customName} wins Battle Showdown!`);
+      } else {
+        // Continue game - next player's turn
+        nextTurn(updated);
+      }
+
+      // Reset battle state
       clearBattleState();
-      return;
-    }
+    };
 
-    // Check for winner after battle
-    if (updated[attackerIndex].position >= board.length - 1) {
-      const finalScore = roll(20) + updated[attackerIndex].trophies + updated[attackerIndex].power;
-      setWinner({ ...updated[attackerIndex], finalScore });
-      setMessage(`${updated[attackerIndex].customName} reached the Final Battle and wins!`);
-      addLog(`🏆 ${updated[attackerIndex].customName} wins Battle Showdown!`);
-    } else if (updated[defenderIndex].position >= board.length - 1) {
-      const finalScore = roll(20) + updated[defenderIndex].trophies + updated[defenderIndex].power;
-      setWinner({ ...updated[defenderIndex], finalScore });
-      setMessage(`${updated[defenderIndex].customName} reached the Final Battle and wins!`);
-      addLog(`🏆 ${updated[defenderIndex].customName} wins Battle Showdown!`);
+    const movedPlayerId = movedBattlePlayers[0];
+    if (movedPlayerId) {
+      const movedPlayer = updated.find(p => p.id === movedPlayerId);
+      animatePlayerMovement(
+        movedPlayerId,
+        getMovementPath(previousBattlePositions[movedPlayerId], movedPlayer.position),
+        updated,
+        afterBattleMove
+      );
     } else {
-      // Continue game - next player's turn
-      nextTurn(updated);
+      setPlayers(updated);
+      afterBattleMove();
     }
-
-    // Reset battle state
-    clearBattleState();
   }
 
   function handleBattleRoll() {
-    if (rolling) return;
+    if (rolling || moving) return;
 
     if (battlePhase === 'result') {
       finishBattle();
@@ -371,7 +464,7 @@ export default function App() {
   }
 
   function handleRoll() {
-    if (winner || battleMode || rolling) return;
+    if (winner || battleMode || rolling || moving) return;
 
     let updated = [...players];
     let p = { ...updated[current] };
@@ -389,26 +482,42 @@ export default function App() {
     animateRoll(6, (d) => {
       setDice(d);
 
+      const startPosition = p.position;
       let newPosition = Math.min(p.position + d, board.length - 1);
       p.position = newPosition;
       let type = board[newPosition];
+      let movementPath = getMovementPath(startPosition, newPosition);
 
       let turnMessage = `${p.customName} rolled ${d} and moved to space ${newPosition}.`;
 
       if (type === "boost") {
+        const effectStart = p.position;
         p.position = Math.min(p.position + 2, board.length - 1);
+        movementPath = [...movementPath, ...getMovementPath(effectStart, p.position)];
         turnMessage += " Boost! Move forward 2.";
       }
 
       if (type === "trap") {
+        const effectStart = p.position;
         p.position = Math.max(p.position - 2, 0);
+        movementPath = [...movementPath, ...getMovementPath(effectStart, p.position)];
         turnMessage += " Trap! Move back 2.";
       }
 
       if (type === "mystery") {
         const effects = [
-          () => { p.position = Math.min(p.position + 3, board.length - 1); return "Mystery power! Move forward 3."; },
-          () => { p.position = Math.max(p.position - 3, 0); return "Oops! Move back 3."; },
+          () => {
+            const effectStart = p.position;
+            p.position = Math.min(p.position + 3, board.length - 1);
+            movementPath = [...movementPath, ...getMovementPath(effectStart, p.position)];
+            return "Mystery power! Move forward 3.";
+          },
+          () => {
+            const effectStart = p.position;
+            p.position = Math.max(p.position - 3, 0);
+            movementPath = [...movementPath, ...getMovementPath(effectStart, p.position)];
+            return "Oops! Move back 3.";
+          },
           () => { p.trophies += 1; return "Lucky find! Gain 1 trophy."; },
           () => { p.skip = true; return "Sticky slime! Skip your next turn."; }
         ];
@@ -416,49 +525,50 @@ export default function App() {
       }
 
       if (type === "restart") {
+        const effectStart = p.position;
         p.position = 0;
+        movementPath = [...movementPath, ...getMovementPath(effectStart, p.position)];
         turnMessage += " Back to start!";
       }
 
       updated[current] = p;
-      setPlayers(updated);
+      animatePlayerMovement(p.id, movementPath, updated, () => {
+        if (p.trophies >= TROPHY_WIN_COUNT) {
+          setTrophyWinner(p);
+          return;
+        }
 
-      if (p.trophies >= TROPHY_WIN_COUNT) {
-        setTrophyWinner(p);
-        return;
-      }
+        // Check for battle
+        const opponents = updated.filter((x, i) => i !== current && x.position === p.position);
+        if (board[p.position] === "battle" || opponents.length > 0) {
+          const opponent = opponents[0] || updated.filter((_, i) => i !== current)[roll(updated.length - 1) - 1];
 
-      // Check for battle
-      const opponents = updated.filter((x, i) => i !== current && x.position === p.position);
-      if (board[p.position] === "battle" || opponents.length > 0) {
-        const opponent = opponents[0] || updated.filter((_, i) => i !== current)[roll(updated.length - 1) - 1];
+          setBattleMode(true);
+          setBattleAttacker(p);
+          setBattleDefender(opponent);
+          setBattlePhase('attacker');
+          setAttackerRoll(null);
+          setDefenderRoll(null);
+          setDice(null);
 
-        setBattleMode(true);
-        setBattleAttacker(p);
-        setBattleDefender(opponent);
-        setBattlePhase('attacker');
-        setAttackerRoll(null);
-        setDefenderRoll(null);
-        setDice(null);
+          setMessage(`⚔️ BATTLE! ${p.customName} landed on a battle space vs ${opponent.customName}! ${p.customName}, roll for battle!`);
+          addLog(`⚔️ Battle! ${p.customName} vs ${opponent.customName}`);
+          return;
+        }
 
-        setMessage(`⚔️ BATTLE! ${p.customName} landed on a battle space vs ${opponent.customName}! ${p.customName}, roll for battle!`);
-        addLog(`⚔️ Battle! ${p.customName} vs ${opponent.customName}`);
-        return;
-      }
+        if (p.position >= board.length - 1) {
+          const finalScore = roll(20) + p.trophies + p.power;
+          const finalWinner = { ...p, finalScore };
+          setWinner(finalWinner);
+          setMessage(`${p.customName} reached the Final Battle and wins Battle Showdown! Final score: ${finalScore}`);
+          addLog(`🏆 ${p.customName} wins Battle Showdown!`);
+          return;
+        }
 
-      if (p.position >= board.length - 1) {
-        const finalScore = roll(20) + p.trophies + p.power;
-        const finalWinner = { ...p, finalScore };
-        setWinner(finalWinner);
-        setMessage(`${p.customName} reached the Final Battle and wins Battle Showdown! Final score: ${finalScore}`);
-        addLog(`🏆 ${p.customName} wins Battle Showdown!`);
-        return;
-      }
-
-      setPlayers(updated);
-      setMessage(turnMessage);
-      addLog(turnMessage);
-      nextTurn(updated);
+        setMessage(turnMessage);
+        addLog(turnMessage);
+        nextTurn(updated);
+      });
     });
   }
 
@@ -480,12 +590,98 @@ export default function App() {
           <button className="secondary" onClick={() => reset()}>
             <RotateCcw size={18} /> Reset
           </button>
+          <button className="rules-toggle" onClick={() => setRulesOpen(true)}>
+            <HelpCircle size={18} /> Rules
+          </button>
           <button className="theme-toggle" onClick={toggleTheme} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}>
             {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
             {theme === "dark" ? "Light" : "Dark"}
           </button>
         </div>
       </header>
+
+      {rulesOpen && (
+        <div className="modal-layer" role="dialog" aria-modal="true" aria-labelledby="rules-title">
+          <button className="modal-backdrop" aria-label="Close rules" onClick={() => setRulesOpen(false)} />
+          <section className="rules-modal">
+            <div className="modal-header">
+              <div>
+                <p className="intro-kicker">Rule Book</p>
+                <h2 id="rules-title">How to Play</h2>
+              </div>
+              <button className="modal-close" aria-label="Close rules" onClick={() => setRulesOpen(false)}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="rules-grid">
+              <article>
+                <h3>Goal</h3>
+                <p>Reach the finish space or collect 4 trophies. Either one wins the game immediately.</p>
+              </article>
+
+              <article>
+                <h3>Turn Order</h3>
+                <p>Players take turns in order. With 4 players, the order loops from player 1 to player 4, then back to player 1.</p>
+              </article>
+
+              <article>
+                <h3>Movement</h3>
+                <p>Roll a 6-sided die, then hop space by space. Space effects resolve after the piece finishes moving.</p>
+              </article>
+
+              <article>
+                <h3>Spaces</h3>
+                <ul>
+                  <li><b>BATTLE:</b> start a battle.</li>
+                  <li><b>+2:</b> move forward 2 more spaces.</li>
+                  <li><b>-2:</b> move back 2 spaces.</li>
+                  <li><b>?:</b> random mystery effect.</li>
+                  <li><b>RESTART:</b> go back to start.</li>
+                  <li><b>FINISH:</b> win the game.</li>
+                </ul>
+              </article>
+
+              <article>
+                <h3>Battles</h3>
+                <p>The current player is the attacker and rolls first. The defender rolls second. Highest total wins; ties go to the attacker.</p>
+                <p className="score-rule">Battle total = die + power + trophies + element advantage.</p>
+              </article>
+
+              <article>
+                <h3>Choosing Opponents</h3>
+                <p>If you land on another player, you battle that player. If you land on an empty battle space, another player is chosen at random.</p>
+              </article>
+
+              <article>
+                <h3>Battle Rewards</h3>
+                <p>The battle winner gains 1 trophy. The loser moves back 2 spaces. A player wins instantly when they reach 4 trophies.</p>
+              </article>
+
+              <article>
+                <h3>Elements</h3>
+                <ul>
+                  <li>Water beats Fire.</li>
+                  <li>Fire beats Leaf.</li>
+                  <li>Leaf beats Lightning.</li>
+                  <li>Lightning beats Water.</li>
+                </ul>
+                <p>Element advantage adds +1 to the battle total.</p>
+              </article>
+
+              <article>
+                <h3>Mystery Effects</h3>
+                <ul>
+                  <li>Move forward 3.</li>
+                  <li>Move back 3.</li>
+                  <li>Gain 1 trophy.</li>
+                  <li>Skip your next turn.</li>
+                </ul>
+              </article>
+            </div>
+          </section>
+        </div>
+      )}
 
       {introActive && (
         <div className="intro-layer" role="status" aria-live="polite">
@@ -595,13 +791,13 @@ export default function App() {
               </strong>
             </div>
             {battleMode ? (
-              <button className={`roll battle-btn ${battlePhase === 'result' ? "continue-btn" : ""}`} onClick={handleBattleRoll} disabled={rolling}>
+              <button className={`roll battle-btn ${battlePhase === 'result' ? "continue-btn" : ""}`} onClick={handleBattleRoll} disabled={rolling || moving}>
                 {battleRoller ? <PlayerIcon player={battleRoller} size={20} /> : <Dice5 />}
                 {rolling && battlePhase !== 'result' ? "Rolling..." : battleButtonLabel}
               </button>
             ) : (
-              <button className="roll" onClick={handleRoll} disabled={rolling}>
-                <Dice5 /> {rolling ? "Rolling..." : "Roll Dice"}
+              <button className="roll" onClick={handleRoll} disabled={rolling || moving}>
+                <Dice5 /> {rolling ? "Rolling..." : moving ? "Moving..." : "Roll Dice"}
               </button>
             )}
           </div>
@@ -657,7 +853,12 @@ export default function App() {
                 <strong>{spaceLabels[type]}</strong>
                 <div className="tokens">
                   {(playerBySpace[index] || []).map((p) => (
-                    <span key={p.id} title={p.customName} style={{ background: p.color }}>
+                    <span
+                      key={p.id}
+                      title={p.customName}
+                      className={hoppingPlayerIds.includes(p.id) ? "token-hop" : ""}
+                      style={{ background: p.color }}
+                    >
                       <PlayerIcon player={p} size={18} />
                     </span>
                   ))}
