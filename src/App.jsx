@@ -2,12 +2,13 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Dice5, Swords, RotateCcw, Trophy, Sparkles, Play, Moon, Sun, Droplets, Flame, Zap, Leaf, HelpCircle, X, GripVertical } from "lucide-react";
 import "./styles.css";
 
-const characters = [
+const elementTypes = [
   { id: "water", name: "Water", icon: Droplets, power: 1, color: "#2563eb" },
   { id: "fire", name: "Fire", icon: Flame, power: 1, color: "#dc2626" },
   { id: "lightning", name: "Lightning", icon: Zap, power: 1, color: "#eab308" },
   { id: "leaf", name: "Leaf", icon: Leaf, power: 1, color: "#16a34a" },
 ];
+const characters = elementTypes.map(element => ({ ...element, defaultElementId: element.id }));
 const defaultCharacterOrder = characters.map(c => c.id);
 
 const board = [
@@ -27,6 +28,7 @@ const elementStrengths = {
   leaf: "lightning",
   lightning: "water"
 };
+const elementById = Object.fromEntries(elementTypes.map(element => [element.id, element]));
 
 const spaceLabels = {
   start: "START",
@@ -45,10 +47,25 @@ function getOrderedCharacters(order = defaultCharacterOrder) {
     .filter(Boolean);
 }
 
-function makePlayers(count, customNames = {}, customPowers = {}, playerOrder = defaultCharacterOrder) {
+function getSelectedElement(character, customElements = {}) {
+  return elementById[customElements[character.id]] || elementById[character.defaultElementId];
+}
+
+function getPlayerConfig(character, customElements = {}) {
+  const element = getSelectedElement(character, customElements);
+  return {
+    ...character,
+    elementId: element.id,
+    elementName: element.name,
+    icon: element.icon,
+    color: element.color
+  };
+}
+
+function makePlayers(count, customNames = {}, customPowers = {}, playerOrder = defaultCharacterOrder, customElements = {}) {
   return getOrderedCharacters(playerOrder).slice(0, count).map((c) => ({
-    ...c,
-    customName: customNames[c.id] || c.name,
+    ...getPlayerConfig(c, customElements),
+    customName: customNames[c.id] || getSelectedElement(c, customElements).name,
     power: customPowers[c.id] || 1,
     position: 0,
     trophies: 0,
@@ -72,7 +89,7 @@ function PlayerIcon({ player, size = 26 }) {
 }
 
 function getElementBonus(player, opponent) {
-  return elementStrengths[player.id] === opponent.id ? ELEMENT_ADVANTAGE_BONUS : 0;
+  return elementStrengths[player.elementId] === opponent.elementId ? ELEMENT_ADVANTAGE_BONUS : 0;
 }
 
 function getBattleScore(rollValue, player, opponent) {
@@ -127,9 +144,18 @@ export default function App() {
   const [customPowers, setCustomPowers] = useState(() =>
     Object.fromEntries(characters.map(c => [c.id, 1]))
   );
+  const [customElements, setCustomElements] = useState(() =>
+    Object.fromEntries(characters.map(c => [c.id, c.defaultElementId]))
+  );
   const [playerOrder, setPlayerOrder] = useState(defaultCharacterOrder);
   const [draggedPlayerId, setDraggedPlayerId] = useState(null);
-  const [players, setPlayers] = useState(() => makePlayers(2, {}, Object.fromEntries(characters.map(c => [c.id, 1])), defaultCharacterOrder));
+  const [players, setPlayers] = useState(() => makePlayers(
+    2,
+    {},
+    Object.fromEntries(characters.map(c => [c.id, 1])),
+    defaultCharacterOrder,
+    Object.fromEntries(characters.map(c => [c.id, c.defaultElementId]))
+  ));
   const [current, setCurrent] = useState(0);
   const [dice, setDice] = useState(null);
   const [rolling, setRolling] = useState(false);
@@ -165,7 +191,10 @@ export default function App() {
     : null;
   const turnDisplayPlayer = battleRoller || currentPlayer;
   const turnLabel = battleRoller ? "Battle Turn" : "Current Turn";
-  const setupCharacters = useMemo(() => getOrderedCharacters(playerOrder), [playerOrder]);
+  const setupCharacters = useMemo(
+    () => getOrderedCharacters(playerOrder).map(c => getPlayerConfig(c, customElements)),
+    [playerOrder, customElements]
+  );
 
   useEffect(() => {
     document.body.dataset.theme = theme;
@@ -245,7 +274,7 @@ export default function App() {
   }
 
   function reset(count = playerCount) {
-    setPlayers(makePlayers(count, customNames, customPowers, playerOrder));
+    setPlayers(makePlayers(count, customNames, customPowers, playerOrder, customElements));
     setCurrent(0);
     setDice(null);
     setMoving(false);
@@ -271,18 +300,31 @@ export default function App() {
   }
 
   function startGame() {
-    setPlayers(makePlayers(playerCount, customNames, customPowers, playerOrder));
+    setPlayers(makePlayers(playerCount, customNames, customPowers, playerOrder, customElements));
     setGameStarted(true);
     setIntroActive(true);
     setLog(["Game started!"]);
   }
 
   function updateName(id, name) {
-    setCustomNames(prev => ({ ...prev, [id]: name || characters.find(c => c.id === id)?.name }));
+    const character = characters.find(c => c.id === id);
+    setCustomNames(prev => ({ ...prev, [id]: name || getSelectedElement(character, customElements).name }));
   }
 
   function updatePower(id, power) {
     setCustomPowers(prev => ({ ...prev, [id]: clampPower(power) }));
+  }
+
+  function cycleElement(id) {
+    const previousElement = elementById[customElements[id]] || elementTypes[0];
+    const previousIndex = elementTypes.findIndex(element => element.id === previousElement.id);
+    const nextElement = elementTypes[(previousIndex + 1) % elementTypes.length];
+
+    setCustomElements(prev => ({ ...prev, [id]: nextElement.id }));
+    setCustomNames(prev => {
+      if ((prev[id] || previousElement.name) !== previousElement.name) return prev;
+      return { ...prev, [id]: nextElement.name };
+    });
   }
 
   function reorderPlayers(targetId) {
@@ -789,9 +831,16 @@ export default function App() {
                   <span className="drag-handle" aria-label="Drag to reorder">
                     <GripVertical size={18} />
                   </span>
-                  <div className="avatar" style={{ background: c.color }}>
+                  <button
+                    type="button"
+                    className="avatar element-button"
+                    style={{ background: c.color }}
+                    onClick={() => cycleElement(c.id)}
+                    title={`Change element: ${c.elementName}`}
+                  >
                     <PlayerIcon player={c} />
-                  </div>
+                    <span>{c.elementName}</span>
+                  </button>
                   <input
                     type="text"
                     placeholder={c.name}
