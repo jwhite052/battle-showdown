@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Dice5, Swords, RotateCcw, Trophy, Sparkles, Play, Moon, Sun, Droplets, Flame, Zap, Leaf, HelpCircle, X, GripVertical } from "lucide-react";
+import { Dice5, Swords, RotateCcw, Trophy, Sparkles, Play, Moon, Sun, Droplets, Flame, Zap, Leaf, HelpCircle, X, GripVertical, Volume2, VolumeX } from "lucide-react";
 import "./styles.css";
 
 const elementTypes = [
@@ -22,6 +22,18 @@ const INTRO_DURATION = 2800;
 const MOVE_STEP_DURATION = 260;
 const TROPHY_WIN_COUNT = 4;
 const ELEMENT_ADVANTAGE_BONUS = 1;
+const musicPhrases = [
+  [261.63, 329.63, 392.00, 329.63, 293.66, 349.23, 440.00, 349.23],
+  [329.63, 392.00, 493.88, 392.00, 349.23, 440.00, 523.25, 440.00],
+  [392.00, 329.63, 293.66, 329.63, 349.23, 392.00, 440.00, 392.00],
+  [523.25, 493.88, 440.00, 392.00, 349.23, 392.00, 329.63, 261.63]
+];
+const bassPattern = [
+  130.81, null, null, null,
+  146.83, null, null, null,
+  164.81, null, null, null,
+  174.61, null, null, null
+];
 const elementStrengths = {
   water: "fire",
   fire: "leaf",
@@ -167,9 +179,13 @@ export default function App() {
   const [gameStarted, setGameStarted] = useState(false);
   const [introActive, setIntroActive] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
+  const [musicOn, setMusicOn] = useState(false);
   const [hoppingPlayerIds, setHoppingPlayerIds] = useState([]);
   const hopTimeoutRef = useRef(null);
   const moveTimeoutsRef = useRef([]);
+  const audioContextRef = useRef(null);
+  const musicIntervalRef = useRef(null);
+  const musicStepRef = useRef(0);
 
   // Battle state
   const [battleMode, setBattleMode] = useState(false);
@@ -215,6 +231,8 @@ export default function App() {
     return () => {
       window.clearTimeout(hopTimeoutRef.current);
       moveTimeoutsRef.current.forEach(timeout => window.clearTimeout(timeout));
+      window.clearInterval(musicIntervalRef.current);
+      audioContextRef.current?.close();
     };
   }, []);
 
@@ -345,6 +363,70 @@ export default function App() {
 
   function toggleTheme() {
     setTheme(prev => prev === "dark" ? "light" : "dark");
+  }
+
+  function playMusicNote(frequency, duration = 0.2, volume = 0.07, type = "square") {
+    const context = audioContextRef.current;
+    if (!context || !frequency) return;
+
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = type;
+    oscillator.frequency.value = frequency;
+    gain.gain.setValueAtTime(0, context.currentTime);
+    gain.gain.linearRampToValueAtTime(volume, context.currentTime + 0.015);
+    gain.gain.linearRampToValueAtTime(0, context.currentTime + duration);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + duration);
+  }
+
+  async function startMusic() {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+
+    if (!audioContextRef.current || audioContextRef.current.state === "closed") {
+      audioContextRef.current = new AudioContext();
+    }
+
+    if (audioContextRef.current.state === "suspended") {
+      await audioContextRef.current.resume();
+    }
+
+    window.clearInterval(musicIntervalRef.current);
+    musicStepRef.current = 0;
+    playMusicNote(musicPhrases[0][0], 0.24, 0.075);
+    playMusicNote(bassPattern[0], 0.38, 0.028, "triangle");
+    musicIntervalRef.current = window.setInterval(() => {
+      musicStepRef.current += 1;
+      const phraseIndex = Math.floor(musicStepRef.current / 8) % musicPhrases.length;
+      const noteIndex = musicStepRef.current % 8;
+      const phrase = musicPhrases[phraseIndex];
+      const melodyFrequency = phrase[noteIndex];
+      const bassFrequency = bassPattern[musicStepRef.current % bassPattern.length];
+
+      playMusicNote(melodyFrequency, noteIndex % 4 === 0 ? 0.25 : 0.2, 0.075);
+      if (bassFrequency) {
+        playMusicNote(bassFrequency, 0.38, 0.028, "triangle");
+      }
+    }, 260);
+    setMusicOn(true);
+  }
+
+  function stopMusic() {
+    window.clearInterval(musicIntervalRef.current);
+    musicIntervalRef.current = null;
+    setMusicOn(false);
+  }
+
+  function toggleMusic() {
+    if (musicOn) {
+      stopMusic();
+      return;
+    }
+
+    startMusic();
   }
 
   function animateRoll(sides, onComplete) {
@@ -660,6 +742,10 @@ export default function App() {
           </button>
           <button className="rules-toggle" onClick={() => setRulesOpen(true)}>
             <HelpCircle size={18} /> Rules
+          </button>
+          <button className="music-toggle" onClick={toggleMusic} aria-label={musicOn ? "Turn music off" : "Turn music on"}>
+            {musicOn ? <Volume2 size={18} /> : <VolumeX size={18} />}
+            {musicOn ? "Music On" : "Music Off"}
           </button>
           <button className="theme-toggle" onClick={toggleTheme} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}>
             {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
