@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Dice5, Swords, RotateCcw, Trophy, Sparkles, Play, Moon, Sun, Droplets, Flame, Zap, Leaf, HelpCircle, X } from "lucide-react";
+import { Dice5, Swords, RotateCcw, Trophy, Sparkles, Play, Moon, Sun, Droplets, Flame, Zap, Leaf, HelpCircle, X, GripVertical } from "lucide-react";
 import "./styles.css";
 
 const characters = [
@@ -8,6 +8,7 @@ const characters = [
   { id: "lightning", name: "Lightning", icon: Zap, power: 1, color: "#eab308" },
   { id: "leaf", name: "Leaf", icon: Leaf, power: 1, color: "#16a34a" },
 ];
+const defaultCharacterOrder = characters.map(c => c.id);
 
 const board = [
   "start", "normal", "battle", "boost", "normal", "trap",
@@ -38,8 +39,14 @@ const spaceLabels = {
   final: "FINISH"
 };
 
-function makePlayers(count, customNames = {}, customPowers = {}) {
-  return characters.slice(0, count).map((c) => ({
+function getOrderedCharacters(order = defaultCharacterOrder) {
+  return order
+    .map(id => characters.find(c => c.id === id))
+    .filter(Boolean);
+}
+
+function makePlayers(count, customNames = {}, customPowers = {}, playerOrder = defaultCharacterOrder) {
+  return getOrderedCharacters(playerOrder).slice(0, count).map((c) => ({
     ...c,
     customName: customNames[c.id] || c.name,
     power: customPowers[c.id] || 1,
@@ -120,7 +127,9 @@ export default function App() {
   const [customPowers, setCustomPowers] = useState(() =>
     Object.fromEntries(characters.map(c => [c.id, 1]))
   );
-  const [players, setPlayers] = useState(() => makePlayers(2, {}, Object.fromEntries(characters.map(c => [c.id, 1]))));
+  const [playerOrder, setPlayerOrder] = useState(defaultCharacterOrder);
+  const [draggedPlayerId, setDraggedPlayerId] = useState(null);
+  const [players, setPlayers] = useState(() => makePlayers(2, {}, Object.fromEntries(characters.map(c => [c.id, 1])), defaultCharacterOrder));
   const [current, setCurrent] = useState(0);
   const [dice, setDice] = useState(null);
   const [rolling, setRolling] = useState(false);
@@ -156,6 +165,7 @@ export default function App() {
     : null;
   const turnDisplayPlayer = battleRoller || currentPlayer;
   const turnLabel = battleRoller ? "Battle Turn" : "Current Turn";
+  const setupCharacters = useMemo(() => getOrderedCharacters(playerOrder), [playerOrder]);
 
   useEffect(() => {
     document.body.dataset.theme = theme;
@@ -235,7 +245,7 @@ export default function App() {
   }
 
   function reset(count = playerCount) {
-    setPlayers(makePlayers(count, customNames, customPowers));
+    setPlayers(makePlayers(count, customNames, customPowers, playerOrder));
     setCurrent(0);
     setDice(null);
     setMoving(false);
@@ -261,7 +271,7 @@ export default function App() {
   }
 
   function startGame() {
-    setPlayers(makePlayers(playerCount, customNames, customPowers));
+    setPlayers(makePlayers(playerCount, customNames, customPowers, playerOrder));
     setGameStarted(true);
     setIntroActive(true);
     setLog(["Game started!"]);
@@ -273,6 +283,22 @@ export default function App() {
 
   function updatePower(id, power) {
     setCustomPowers(prev => ({ ...prev, [id]: clampPower(power) }));
+  }
+
+  function reorderPlayers(targetId) {
+    if (!draggedPlayerId || draggedPlayerId === targetId) return;
+
+    setPlayerOrder(prev => {
+      const next = [...prev];
+      const fromIndex = next.indexOf(draggedPlayerId);
+      const toIndex = next.indexOf(targetId);
+      if (fromIndex === -1 || toIndex === -1) return prev;
+
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
+    });
+    setDraggedPlayerId(null);
   }
 
   function toggleTheme() {
@@ -622,7 +648,7 @@ export default function App() {
 
               <article>
                 <h3>Turn Order</h3>
-                <p>Players take turns in order. With 4 players, the order loops from player 1 to player 4, then back to player 1.</p>
+                <p>Players take turns in numbered order. Drag players on the setup screen before starting to change the order.</p>
               </article>
 
               <article>
@@ -749,8 +775,20 @@ export default function App() {
           <section className="panel board-panel">
             <h2>Customize Your Players</h2>
             <div className="name-setup">
-              {characters.slice(0, playerCount).map((c) => (
-                <div key={c.id} className="name-input-row">
+              {setupCharacters.slice(0, playerCount).map((c, index) => (
+                <div
+                  key={c.id}
+                  className={`name-input-row ${draggedPlayerId === c.id ? "dragging" : ""}`}
+                  draggable
+                  onDragStart={() => setDraggedPlayerId(c.id)}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={() => reorderPlayers(c.id)}
+                  onDragEnd={() => setDraggedPlayerId(null)}
+                >
+                  <span className="order-badge">{index + 1}</span>
+                  <span className="drag-handle" aria-label="Drag to reorder">
+                    <GripVertical size={18} />
+                  </span>
                   <div className="avatar" style={{ background: c.color }}>
                     <PlayerIcon player={c} />
                   </div>
@@ -872,6 +910,7 @@ export default function App() {
           <h2><Swords size={20}/> Players</h2>
           {players.map((p, index) => (
             <div className={`player ${index === current ? "active" : ""}`} key={p.id}>
+              <span className="order-badge">{index + 1}</span>
               <div className="avatar" style={{ background: p.color }}>
                 <PlayerIcon player={p} />
               </div>

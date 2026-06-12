@@ -526,7 +526,7 @@ body[data-theme="light"] .modal-backdrop {
 
 .player {
   display: grid;
-  grid-template-columns: 48px 1fr auto;
+  grid-template-columns: 32px 48px 1fr auto;
   align-items: center;
   gap: 10px;
   background: var(--card-bg-soft);
@@ -538,6 +538,20 @@ body[data-theme="light"] .modal-backdrop {
 
 .player.active {
   border-color: var(--accent);
+}
+
+.order-badge {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  font-size: .82rem;
+  font-weight: 1000;
 }
 
 .avatar {
@@ -855,6 +869,28 @@ body[data-theme="light"] .victory-layer {
   background: var(--card-bg-soft);
   border-radius: 18px;
   padding: 12px 16px;
+  border: 2px solid transparent;
+  cursor: grab;
+  transition: border-color .16s ease, opacity .16s ease, transform .16s ease;
+}
+
+.name-input-row:active {
+  cursor: grabbing;
+}
+
+.name-input-row.dragging {
+  opacity: .62;
+  transform: scale(.99);
+}
+
+.name-input-row:hover {
+  border-color: var(--accent-border);
+}
+
+.drag-handle {
+  display: grid;
+  place-items: center;
+  color: var(--card-text-muted);
 }
 
 .name-input {
