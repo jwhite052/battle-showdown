@@ -18,6 +18,13 @@ const board = [
 
 const INTRO_DURATION = 2800;
 const TROPHY_WIN_COUNT = 4;
+const ELEMENT_ADVANTAGE_BONUS = 1;
+const elementStrengths = {
+  water: "fire",
+  fire: "leaf",
+  leaf: "lightning",
+  lightning: "water"
+};
 
 const spaceLabels = {
   start: "START",
@@ -56,6 +63,14 @@ function PlayerIcon({ player, size = 26 }) {
   return <Icon size={size} strokeWidth={2.6} aria-hidden="true" />;
 }
 
+function getElementBonus(player, opponent) {
+  return elementStrengths[player.id] === opponent.id ? ELEMENT_ADVANTAGE_BONUS : 0;
+}
+
+function getBattleScore(rollValue, player, opponent) {
+  return rollValue + player.power + player.trophies + getElementBonus(player, opponent);
+}
+
 function DiceFace({ value }) {
   if (!value) return "?";
 
@@ -68,13 +83,18 @@ function DiceFace({ value }) {
   );
 }
 
-function BattleScore({ rollValue, player, isWinner = false }) {
-  const total = rollValue + player.power + player.trophies;
+function BattleScore({ rollValue, player, opponent, isWinner = false }) {
+  const elementBonus = getElementBonus(player, opponent);
+  const total = getBattleScore(rollValue, player, opponent);
 
   return (
     <div className={`battle-score ${isWinner ? "winner-score" : ""}`}>
-      <span className="score-formula">{rollValue} + {player.power} + {player.trophies}</span>
+      <span className="score-formula">
+        {rollValue} + {player.power} + {player.trophies}
+        {elementBonus > 0 && <> + {elementBonus}</>}
+      </span>
       <span className="score-total">{total}</span>
+      {elementBonus > 0 && <span className="element-bonus">Advantage +{elementBonus}</span>}
     </div>
   );
 }
@@ -267,8 +287,8 @@ export default function App() {
     setDice(null);
 
     const updated = [...players];
-    const defenderScore = defenderRoll + battleDefender.power + battleDefender.trophies;
-    const attackerScore = attackerRoll + battleAttacker.power + battleAttacker.trophies;
+    const defenderScore = getBattleScore(defenderRoll, battleDefender, battleAttacker);
+    const attackerScore = getBattleScore(attackerRoll, battleAttacker, battleDefender);
 
     const attackerIndex = updated.findIndex(p => p.id === battleAttacker.id);
     const defenderIndex = updated.findIndex(p => p.id === battleDefender.id);
@@ -327,20 +347,24 @@ export default function App() {
         setDice(d);
         setAttackerRoll(d);
         setBattleWinnerId(null);
-        const totalScore = d + battleAttacker.power + battleAttacker.trophies;
-        setMessage(`${battleAttacker.customName} rolled ${d} + ${battleAttacker.power} power + ${battleAttacker.trophies} trophies = ${totalScore}. ${battleDefender.customName}'s turn to roll!`);
+        const elementBonus = getElementBonus(battleAttacker, battleDefender);
+        const totalScore = getBattleScore(d, battleAttacker, battleDefender);
+        const bonusText = elementBonus > 0 ? ` + ${elementBonus} element advantage` : "";
+        setMessage(`${battleAttacker.customName} rolled ${d} + ${battleAttacker.power} power + ${battleAttacker.trophies} trophies${bonusText} = ${totalScore}. ${battleDefender.customName}'s turn to roll!`);
         setBattlePhase('defender');
       });
     } else if (battlePhase === 'defender') {
       animateRoll(6, (d) => {
         setDice(d);
         setDefenderRoll(d);
-        const defenderScore = d + battleDefender.power + battleDefender.trophies;
-        const attackerScore = (attackerRoll || 0) + battleAttacker.power + battleAttacker.trophies;
+        const defenderBonus = getElementBonus(battleDefender, battleAttacker);
+        const defenderScore = getBattleScore(d, battleDefender, battleAttacker);
+        const attackerScore = getBattleScore(attackerRoll || 0, battleAttacker, battleDefender);
         const battleLeader = attackerScore >= defenderScore ? battleAttacker : battleDefender;
         setBattleWinnerId(battleLeader.id);
         const leader = battleLeader.customName;
-        setMessage(`${battleDefender.customName} rolled ${d} + ${battleDefender.power} power + ${battleDefender.trophies} trophies = ${defenderScore}. ${leader} wins the battle!`);
+        const bonusText = defenderBonus > 0 ? ` + ${defenderBonus} element advantage` : "";
+        setMessage(`${battleDefender.customName} rolled ${d} + ${battleDefender.power} power + ${battleDefender.trophies} trophies${bonusText} = ${defenderScore}. ${leader} wins the battle!`);
         setBattlePhase('result');
       });
     }
@@ -601,7 +625,7 @@ export default function App() {
                 {battleRoller?.id === battleAttacker.id && <strong className="battle-roll-label">Roll now</strong>}
                 {battleWinnerId === battleAttacker.id && <strong className="battle-win-label">Battle winner</strong>}
                 {attackerRoll !== null && (
-                  <BattleScore rollValue={attackerRoll} player={battleAttacker} isWinner={battleWinnerId === battleAttacker.id} />
+                  <BattleScore rollValue={attackerRoll} player={battleAttacker} opponent={battleDefender} isWinner={battleWinnerId === battleAttacker.id} />
                 )}
               </div>
               <div className="battle-vs">VS</div>
@@ -613,7 +637,7 @@ export default function App() {
                 {battleRoller?.id === battleDefender.id && <strong className="battle-roll-label">Roll now</strong>}
                 {battleWinnerId === battleDefender.id && <strong className="battle-win-label">Battle winner</strong>}
                 {defenderRoll !== null && (
-                  <BattleScore rollValue={defenderRoll} player={battleDefender} isWinner={battleWinnerId === battleDefender.id} />
+                  <BattleScore rollValue={defenderRoll} player={battleDefender} opponent={battleAttacker} isWinner={battleWinnerId === battleDefender.id} />
                 )}
               </div>
             </div>
@@ -666,6 +690,7 @@ export default function App() {
           <div className="rules">
             <h3>Spaces</h3>
             <p><b>Battle:</b> roll + power + trophies. Winner gets a trophy.</p>
+            <p><b>Elements:</b> Water beats Fire, Fire beats Leaf, Leaf beats Lightning, Lightning beats Water. Advantage gives +1.</p>
             <p><b>Trophies:</b> collect 4 to win instantly.</p>
             <p><b>+2:</b> move forward two spaces.</p>
             <p><b>-2:</b> move back two spaces.</p>

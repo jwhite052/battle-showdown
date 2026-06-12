@@ -886,6 +886,8 @@ body[data-theme="light"] .victory-layer {
 .battle-score {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
   gap: 8px;
   background: rgba(0, 0, 0, 0.3);
   padding: 6px 8px 6px 10px;
@@ -921,6 +923,17 @@ body[data-theme="light"] .victory-layer {
 .winner-score .score-total {
   color: #1e1b4b;
   box-shadow: inset 0 -2px 0 rgba(113, 63, 18, .22), 0 0 0 2px var(--accent);
+}
+
+.element-bonus {
+  flex-basis: 100%;
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: #042f2e;
+  background: #99f6e4;
+  font-size: .68rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
 }
 
 .battle-confetti span {
