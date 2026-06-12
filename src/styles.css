@@ -174,7 +174,8 @@ button {
   border: 1px solid var(--accent-border);
 }
 
-.music-toggle {
+.music-toggle,
+.sound-toggle {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -185,6 +186,12 @@ button {
 }
 
 .music-toggle[aria-label="Turn music off"] {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  border-color: var(--accent-border);
+}
+
+.sound-toggle[aria-label="Turn sound effects off"] {
   background: var(--accent-soft);
   color: var(--accent-text);
   border-color: var(--accent-border);

@@ -169,10 +169,13 @@ export default function App() {
   const [introActive, setIntroActive] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
   const [musicOn, setMusicOn] = useState(false);
+  const [soundOn, setSoundOn] = useState(true);
   const [hoppingPlayerIds, setHoppingPlayerIds] = useState([]);
   const hopTimeoutRef = useRef(null);
   const moveTimeoutsRef = useRef([]);
   const musicRef = useRef(null);
+  const sfxContextRef = useRef(null);
+  const soundOnRef = useRef(true);
 
   // Battle state
   const [battleMode, setBattleMode] = useState(false);
@@ -205,6 +208,10 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
+    soundOnRef.current = soundOn;
+  }, [soundOn]);
+
+  useEffect(() => {
     if (!introActive) return undefined;
 
     const timeout = window.setTimeout(() => {
@@ -219,6 +226,7 @@ export default function App() {
       window.clearTimeout(hopTimeoutRef.current);
       moveTimeoutsRef.current.forEach(timeout => window.clearTimeout(timeout));
       musicRef.current?.pause();
+      sfxContextRef.current?.close();
     };
   }, []);
 
@@ -238,6 +246,7 @@ export default function App() {
     const ids = playerIds.filter(Boolean);
     if (!ids.length) return;
 
+    playSfx("hop");
     window.clearTimeout(hopTimeoutRef.current);
     setHoppingPlayerIds(ids);
     hopTimeoutRef.current = window.setTimeout(() => {
@@ -308,6 +317,7 @@ export default function App() {
     setGameStarted(true);
     setIntroActive(true);
     setLog(["Game started!"]);
+    playSfx("start");
   }
 
   function updateName(id, name) {
@@ -354,7 +364,7 @@ export default function App() {
   async function startMusic() {
     if (!musicRef.current) return;
 
-    musicRef.current.volume = 0.55;
+    musicRef.current.volume = 0.2;
     musicRef.current.loop = true;
 
     try {
@@ -379,9 +389,119 @@ export default function App() {
     startMusic();
   }
 
+  async function startSound() {
+    const context = resumeSfxContext();
+    if (!context) return;
+
+    try {
+      if (context.state === "suspended") {
+        await context.resume();
+      }
+      soundOnRef.current = true;
+      setSoundOn(true);
+      playSfx("start");
+    } catch {
+      soundOnRef.current = false;
+      setSoundOn(false);
+    }
+  }
+
+  function stopSound() {
+    soundOnRef.current = false;
+    setSoundOn(false);
+  }
+
+  function toggleSound() {
+    if (soundOn) {
+      stopSound();
+      return;
+    }
+
+    startSound();
+  }
+
+  function resumeSfxContext() {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return null;
+
+    if (!sfxContextRef.current || sfxContextRef.current.state === "closed") {
+      sfxContextRef.current = new AudioContext();
+    }
+
+    return sfxContextRef.current;
+  }
+
+  function playTone(context, frequency, start, duration, volume = 0.08, type = "sine") {
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+
+    oscillator.type = type;
+    oscillator.frequency.setValueAtTime(frequency, start);
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(volume, start + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start(start);
+    oscillator.stop(start + duration + 0.02);
+  }
+
+  function playNoise(context, start, duration, volume = 0.045) {
+    const buffer = context.createBuffer(1, context.sampleRate * duration, context.sampleRate);
+    const data = buffer.getChannelData(0);
+
+    for (let i = 0; i < data.length; i += 1) {
+      data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+    }
+
+    const source = context.createBufferSource();
+    const gain = context.createGain();
+    source.buffer = buffer;
+    gain.gain.setValueAtTime(volume, start);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    source.connect(gain);
+    gain.connect(context.destination);
+    source.start(start);
+  }
+
+  function playSfx(kind) {
+    if (!soundOnRef.current) return;
+
+    const context = resumeSfxContext();
+    if (!context) return;
+    if (context.state === "suspended") {
+      context.resume();
+    }
+
+    const now = context.currentTime;
+    const effectVolume = kind === "hop" ? 0.055 : kind === "dice" ? 0.065 : 0.085;
+    const sequences = {
+      start: [[392, 0, 0.08], [523, 0.09, 0.08], [784, 0.18, 0.14]],
+      dice: [[220, 0, 0.04], [330, 0.06, 0.04], [260, 0.12, 0.05], [440, 0.18, 0.05]],
+      hop: [[560, 0, 0.06]],
+      boost: [[440, 0, 0.06], [660, 0.07, 0.07], [880, 0.15, 0.1]],
+      trap: [[300, 0, 0.08], [220, 0.09, 0.08], [140, 0.18, 0.12]],
+      mystery: [[392, 0, 0.06], [587, 0.07, 0.06], [494, 0.14, 0.06], [740, 0.21, 0.08]],
+      battleStart: [[196, 0, 0.12], [392, 0.13, 0.1], [196, 0.25, 0.12]],
+      battleWin: [[523, 0, 0.08], [659, 0.09, 0.08], [784, 0.18, 0.14]],
+      trophy: [[659, 0, 0.08], [784, 0.08, 0.08], [988, 0.17, 0.16]],
+      win: [[523, 0, 0.1], [659, 0.1, 0.1], [784, 0.2, 0.1], [1047, 0.32, 0.2]],
+    };
+
+    if (kind === "trap" || kind === "battleStart") {
+      playNoise(context, now, 0.12, kind === "trap" ? 0.035 : 0.05);
+    }
+
+    (sequences[kind] || []).forEach(([frequency, offset, duration]) => {
+      playTone(context, frequency, now + offset, duration, effectVolume, kind === "hop" ? "sine" : "triangle");
+    });
+  }
+
   function animateRoll(sides, onComplete) {
     if (rolling) return;
 
+    playSfx("dice");
     setRolling(true);
     setRollingValue(roll(sides));
 
@@ -447,6 +567,7 @@ export default function App() {
 
   function setTrophyWinner(player) {
     const finalScore = roll(20) + player.trophies + player.power;
+    playSfx("win");
     setWinner({ ...player, finalScore });
     setMessage(`${player.customName} collected ${TROPHY_WIN_COUNT} trophies and wins Battle Showdown! Final score: ${finalScore}`);
     addLog(`🏆 ${player.customName} wins Battle Showdown with ${TROPHY_WIN_COUNT} trophies!`);
@@ -555,6 +676,7 @@ export default function App() {
         const attackerScore = getBattleScore(attackerRoll || 0, battleAttacker, battleDefender);
         const battleLeader = attackerScore >= defenderScore ? battleAttacker : battleDefender;
         setBattleWinnerId(battleLeader.id);
+        playSfx("battleWin");
         const leader = battleLeader.customName;
         const bonusText = defenderBonus > 0 ? ` + ${defenderBonus} element advantage` : "";
         setMessage(`${battleDefender.customName} rolled ${d} + ${battleDefender.power} power + ${battleDefender.trophies} trophies${bonusText} = ${defenderScore}. ${leader} wins the battle!`);
@@ -591,6 +713,7 @@ export default function App() {
       let turnMessage = `${p.customName} rolled ${d} and moved to space ${newPosition}.`;
 
       if (type === "boost") {
+        playSfx("boost");
         const effectStart = p.position;
         p.position = Math.min(p.position + 2, board.length - 1);
         movementPath = [...movementPath, ...getMovementPath(effectStart, p.position)];
@@ -598,6 +721,7 @@ export default function App() {
       }
 
       if (type === "trap") {
+        playSfx("trap");
         const effectStart = p.position;
         p.position = Math.max(p.position - 2, 0);
         movementPath = [...movementPath, ...getMovementPath(effectStart, p.position)];
@@ -605,6 +729,7 @@ export default function App() {
       }
 
       if (type === "mystery") {
+        playSfx("mystery");
         const effects = [
           () => {
             const effectStart = p.position;
@@ -625,6 +750,7 @@ export default function App() {
       }
 
       if (type === "restart") {
+        playSfx("trap");
         const effectStart = p.position;
         p.position = 0;
         movementPath = [...movementPath, ...getMovementPath(effectStart, p.position)];
@@ -650,6 +776,7 @@ export default function App() {
           setAttackerRoll(null);
           setDefenderRoll(null);
           setDice(null);
+          playSfx("battleStart");
 
           setMessage(`⚔️ BATTLE! ${p.customName} landed on a battle space vs ${opponent.customName}! ${p.customName}, roll for battle!`);
           addLog(`⚔️ Battle! ${p.customName} vs ${opponent.customName}`);
@@ -659,6 +786,7 @@ export default function App() {
         if (p.position >= board.length - 1) {
           const finalScore = roll(20) + p.trophies + p.power;
           const finalWinner = { ...p, finalScore };
+          playSfx("win");
           setWinner(finalWinner);
           setMessage(`${p.customName} reached the Final Battle and wins Battle Showdown! Final score: ${finalScore}`);
           addLog(`🏆 ${p.customName} wins Battle Showdown!`);
@@ -697,6 +825,10 @@ export default function App() {
           <button className="music-toggle" onClick={toggleMusic} aria-label={musicOn ? "Turn music off" : "Turn music on"}>
             {musicOn ? <Volume2 size={18} /> : <VolumeX size={18} />}
             {musicOn ? "Music On" : "Music Off"}
+          </button>
+          <button className="sound-toggle" onClick={toggleSound} aria-label={soundOn ? "Turn sound effects off" : "Turn sound effects on"}>
+            {soundOn ? <Volume2 size={18} /> : <VolumeX size={18} />}
+            {soundOn ? "SFX On" : "SFX Off"}
           </button>
           <button className="theme-toggle" onClick={toggleTheme} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}>
             {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
