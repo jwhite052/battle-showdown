@@ -1,20 +1,23 @@
-import React, { useMemo, useState } from "react";
-import { Dice5, Swords, RotateCcw, Trophy, Sparkles, Play } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { Dice5, Swords, RotateCcw, Trophy, Sparkles, Play, Moon, Sun, Droplets, Flame, Zap, Leaf } from "lucide-react";
 import "./styles.css";
 
 const characters = [
-  { id: "bronto", name: "Bronto", emoji: "🦕", power: 2, color: "#60a5fa" },
-  { id: "axel", name: "Axel", emoji: "🦎", power: 3, color: "#34d399" },
-  { id: "luna", name: "Luna", emoji: "🌙", power: 2, color: "#f472b6" },
-  { id: "blaze", name: "Blaze", emoji: "🔥", power: 4, color: "#fb923c" },
+  { id: "water", name: "Water", icon: Droplets, power: 1, color: "#2563eb" },
+  { id: "fire", name: "Fire", icon: Flame, power: 1, color: "#dc2626" },
+  { id: "lightning", name: "Lightning", icon: Zap, power: 1, color: "#eab308" },
+  { id: "leaf", name: "Leaf", icon: Leaf, power: 1, color: "#16a34a" },
 ];
 
 const board = [
   "start", "normal", "battle", "boost", "normal", "trap",
   "battle", "normal", "mystery", "normal", "battle", "boost",
-  "normal", "trap", "battle", "normal", "mystery", "normal",
+  "normal", "trap", "battle", "normal", "mystery", "restart",
   "battle", "boost", "normal", "trap", "battle", "final"
 ];
+
+const INTRO_DURATION = 2800;
+const TROPHY_WIN_COUNT = 4;
 
 const spaceLabels = {
   start: "START",
@@ -22,13 +25,16 @@ const spaceLabels = {
   battle: "BATTLE",
   boost: "+2",
   trap: "-2",
-  mystery: "?"
+  mystery: "?",
+  restart: "RESTART",
+  final: "FINISH"
 };
 
-function makePlayers(count, customNames = {}) {
+function makePlayers(count, customNames = {}, customPowers = {}) {
   return characters.slice(0, count).map((c) => ({
     ...c,
     customName: customNames[c.id] || c.name,
+    power: customPowers[c.id] || 1,
     position: 0,
     trophies: 0,
     skip: false,
@@ -39,18 +45,59 @@ function roll(sides = 6) {
   return Math.floor(Math.random() * sides) + 1;
 }
 
+function clampPower(value) {
+  const power = Number(value);
+  if (!Number.isFinite(power)) return 1;
+  return Math.min(Math.max(power, 1), 10);
+}
+
+function PlayerIcon({ player, size = 26 }) {
+  const Icon = player.icon;
+  return <Icon size={size} strokeWidth={2.6} aria-hidden="true" />;
+}
+
+function DiceFace({ value }) {
+  if (!value) return "?";
+
+  return (
+    <div className={`dice-face pip-count-${value}`} aria-label={`Rolled ${value}`}>
+      {Array.from({ length: value }, (_, index) => (
+        <span key={index} className="pip" />
+      ))}
+    </div>
+  );
+}
+
+function BattleScore({ rollValue, player, isWinner = false }) {
+  const total = rollValue + player.power + player.trophies;
+
+  return (
+    <div className={`battle-score ${isWinner ? "winner-score" : ""}`}>
+      <span className="score-formula">{rollValue} + {player.power} + {player.trophies}</span>
+      <span className="score-total">{total}</span>
+    </div>
+  );
+}
+
 export default function App() {
-  const [playerCount, setPlayerCount] = useState(4);
+  const [theme, setTheme] = useState(() => localStorage.getItem("battle-showdown-theme") || "dark");
+  const [playerCount, setPlayerCount] = useState(2);
   const [customNames, setCustomNames] = useState(() =>
     Object.fromEntries(characters.map(c => [c.id, c.name]))
   );
-  const [players, setPlayers] = useState(() => makePlayers(4));
+  const [customPowers, setCustomPowers] = useState(() =>
+    Object.fromEntries(characters.map(c => [c.id, 1]))
+  );
+  const [players, setPlayers] = useState(() => makePlayers(2, {}, Object.fromEntries(characters.map(c => [c.id, 1]))));
   const [current, setCurrent] = useState(0);
   const [dice, setDice] = useState(null);
+  const [rolling, setRolling] = useState(false);
+  const [rollingValue, setRollingValue] = useState(null);
   const [message, setMessage] = useState("Choose players, then roll to begin Battle Showdown!");
   const [log, setLog] = useState(["Welcome to Battle Showdown!"]);
   const [winner, setWinner] = useState(null);
   const [gameStarted, setGameStarted] = useState(false);
+  const [introActive, setIntroActive] = useState(false);
 
   // Battle state
   const [battleMode, setBattleMode] = useState(false);
@@ -58,9 +105,35 @@ export default function App() {
   const [battleDefender, setBattleDefender] = useState(null);
   const [attackerRoll, setAttackerRoll] = useState(null);
   const [defenderRoll, setDefenderRoll] = useState(null);
-  const [battlePhase, setBattlePhase] = useState(null); // 'attacker' or 'defender'
+  const [battleWinnerId, setBattleWinnerId] = useState(null);
+  const [battlePhase, setBattlePhase] = useState(null); // 'attacker', 'defender', or 'result'
 
   const currentPlayer = players[current];
+  const battleButtonLabel = {
+    attacker: "Attack Roll",
+    defender: "Defend Roll",
+    result: "Continue"
+  }[battlePhase] || "Battle Roll";
+  const battleRoller = battleMode && battlePhase !== 'result'
+    ? (battlePhase === 'attacker' ? battleAttacker : battleDefender)
+    : null;
+  const turnDisplayPlayer = battleRoller || currentPlayer;
+  const turnLabel = battleRoller ? "Battle Turn" : "Current Turn";
+
+  useEffect(() => {
+    document.body.dataset.theme = theme;
+    localStorage.setItem("battle-showdown-theme", theme);
+  }, [theme]);
+
+  useEffect(() => {
+    if (!introActive) return undefined;
+
+    const timeout = window.setTimeout(() => {
+      setIntroActive(false);
+    }, INTRO_DURATION);
+
+    return () => window.clearTimeout(timeout);
+  }, [introActive]);
 
   const playerBySpace = useMemo(() => {
     const map = {};
@@ -75,11 +148,12 @@ export default function App() {
   }
 
   function reset(count = playerCount) {
-    setPlayers(makePlayers(count, customNames));
+    setPlayers(makePlayers(count, customNames, customPowers));
     setCurrent(0);
     setDice(null);
     setWinner(null);
     setGameStarted(false);
+    setIntroActive(false);
     setBattleMode(false);
     setBattleAttacker(null);
     setBattleDefender(null);
@@ -96,13 +170,45 @@ export default function App() {
   }
 
   function startGame() {
-    setPlayers(makePlayers(playerCount, customNames));
+    setPlayers(makePlayers(playerCount, customNames, customPowers));
     setGameStarted(true);
+    setIntroActive(true);
     setLog(["Game started!"]);
   }
 
   function updateName(id, name) {
     setCustomNames(prev => ({ ...prev, [id]: name || characters.find(c => c.id === id)?.name }));
+  }
+
+  function updatePower(id, power) {
+    setCustomPowers(prev => ({ ...prev, [id]: clampPower(power) }));
+  }
+
+  function toggleTheme() {
+    setTheme(prev => prev === "dark" ? "light" : "dark");
+  }
+
+  function animateRoll(sides, onComplete) {
+    if (rolling) return;
+
+    setRolling(true);
+    setRollingValue(roll(sides));
+
+    const interval = window.setInterval(() => {
+      setRollingValue(roll(sides));
+    }, 70);
+
+    window.setTimeout(() => {
+      window.clearInterval(interval);
+      const finalRoll = roll(sides);
+      setRollingValue(finalRoll);
+
+      window.setTimeout(() => {
+        onComplete(finalRoll);
+        setRolling(false);
+        setRollingValue(null);
+      }, 180);
+    }, 700);
   }
 
   function nextTurn(updatedPlayers = players) {
@@ -138,66 +244,110 @@ export default function App() {
     return turnMessage;
   }
 
+  function clearBattleState() {
+    setBattleMode(false);
+    setBattleAttacker(null);
+    setBattleDefender(null);
+    setAttackerRoll(null);
+    setDefenderRoll(null);
+    setBattleWinnerId(null);
+    setBattlePhase(null);
+  }
+
+  function setTrophyWinner(player) {
+    const finalScore = roll(20) + player.trophies + player.power;
+    setWinner({ ...player, finalScore });
+    setMessage(`${player.customName} collected ${TROPHY_WIN_COUNT} trophies and wins Battle Showdown! Final score: ${finalScore}`);
+    addLog(`🏆 ${player.customName} wins Battle Showdown with ${TROPHY_WIN_COUNT} trophies!`);
+  }
+
+  function finishBattle() {
+    if (attackerRoll === null || defenderRoll === null) return;
+
+    setDice(null);
+
+    const updated = [...players];
+    const defenderScore = defenderRoll + battleDefender.power + battleDefender.trophies;
+    const attackerScore = attackerRoll + battleAttacker.power + battleAttacker.trophies;
+
+    const attackerIndex = updated.findIndex(p => p.id === battleAttacker.id);
+    const defenderIndex = updated.findIndex(p => p.id === battleDefender.id);
+
+    const battleResult = resolveBattle(
+      attackerScore,
+      defenderScore,
+      battleAttacker,
+      battleDefender,
+      attackerIndex,
+      defenderIndex,
+      updated
+    );
+
+    setPlayers(updated);
+    setMessage(battleResult);
+    addLog(battleResult);
+
+    const trophyWinner = updated.find(p => p.trophies >= TROPHY_WIN_COUNT);
+    if (trophyWinner) {
+      setTrophyWinner(trophyWinner);
+      clearBattleState();
+      return;
+    }
+
+    // Check for winner after battle
+    if (updated[attackerIndex].position >= board.length - 1) {
+      const finalScore = roll(20) + updated[attackerIndex].trophies + updated[attackerIndex].power;
+      setWinner({ ...updated[attackerIndex], finalScore });
+      setMessage(`${updated[attackerIndex].customName} reached the Final Battle and wins!`);
+      addLog(`🏆 ${updated[attackerIndex].customName} wins Battle Showdown!`);
+    } else if (updated[defenderIndex].position >= board.length - 1) {
+      const finalScore = roll(20) + updated[defenderIndex].trophies + updated[defenderIndex].power;
+      setWinner({ ...updated[defenderIndex], finalScore });
+      setMessage(`${updated[defenderIndex].customName} reached the Final Battle and wins!`);
+      addLog(`🏆 ${updated[defenderIndex].customName} wins Battle Showdown!`);
+    } else {
+      // Continue game - next player's turn
+      nextTurn(updated);
+    }
+
+    // Reset battle state
+    clearBattleState();
+  }
+
   function handleBattleRoll() {
-    let updated = [...players];
+    if (rolling) return;
+
+    if (battlePhase === 'result') {
+      finishBattle();
+      return;
+    }
 
     if (battlePhase === 'attacker') {
-      const d = roll(10);
-      setAttackerRoll(d);
-      const totalScore = d + battleAttacker.power + battleAttacker.trophies;
-      setMessage(`${battleAttacker.customName} rolled ${d} + ${battleAttacker.power} power + ${battleAttacker.trophies} trophies = ${totalScore}. ${battleDefender.customName}'s turn to roll!`);
-      setBattlePhase('defender');
+      animateRoll(6, (d) => {
+        setDice(d);
+        setAttackerRoll(d);
+        setBattleWinnerId(null);
+        const totalScore = d + battleAttacker.power + battleAttacker.trophies;
+        setMessage(`${battleAttacker.customName} rolled ${d} + ${battleAttacker.power} power + ${battleAttacker.trophies} trophies = ${totalScore}. ${battleDefender.customName}'s turn to roll!`);
+        setBattlePhase('defender');
+      });
     } else if (battlePhase === 'defender') {
-      const d = roll(10);
-      setDefenderRoll(d);
-      const defenderScore = d + battleDefender.power + battleDefender.trophies;
-      const attackerScore = (attackerRoll || 0) + battleAttacker.power + battleAttacker.trophies;
-
-      const attackerIndex = updated.findIndex(p => p.id === battleAttacker.id);
-      const defenderIndex = updated.findIndex(p => p.id === battleDefender.id);
-
-      const battleResult = resolveBattle(
-        attackerScore,
-        defenderScore,
-        battleAttacker,
-        battleDefender,
-        attackerIndex,
-        defenderIndex,
-        updated
-      );
-
-      setPlayers(updated);
-      setMessage(battleResult);
-      addLog(battleResult);
-
-      // Check for winner after battle
-      if (updated[attackerIndex].position >= board.length - 1) {
-        const finalScore = roll(20) + updated[attackerIndex].trophies + updated[attackerIndex].power;
-        setWinner({ ...updated[attackerIndex], finalScore });
-        setMessage(`${updated[attackerIndex].customName} reached the Final Battle and wins!`);
-        addLog(`🏆 ${updated[attackerIndex].customName} wins Battle Showdown!`);
-      } else if (updated[defenderIndex].position >= board.length - 1) {
-        const finalScore = roll(20) + updated[defenderIndex].trophies + updated[defenderIndex].power;
-        setWinner({ ...updated[defenderIndex], finalScore });
-        setMessage(`${updated[defenderIndex].customName} reached the Final Battle and wins!`);
-        addLog(`🏆 ${updated[defenderIndex].customName} wins Battle Showdown!`);
-      } else {
-        // Continue game - next player's turn
-        nextTurn(updated);
-      }
-
-      // Reset battle state
-      setBattleMode(false);
-      setBattleAttacker(null);
-      setBattleDefender(null);
-      setAttackerRoll(null);
-      setDefenderRoll(null);
-      setBattlePhase(null);
+      animateRoll(6, (d) => {
+        setDice(d);
+        setDefenderRoll(d);
+        const defenderScore = d + battleDefender.power + battleDefender.trophies;
+        const attackerScore = (attackerRoll || 0) + battleAttacker.power + battleAttacker.trophies;
+        const battleLeader = attackerScore >= defenderScore ? battleAttacker : battleDefender;
+        setBattleWinnerId(battleLeader.id);
+        const leader = battleLeader.customName;
+        setMessage(`${battleDefender.customName} rolled ${d} + ${battleDefender.power} power + ${battleDefender.trophies} trophies = ${defenderScore}. ${leader} wins the battle!`);
+        setBattlePhase('result');
+      });
     }
   }
 
   function handleRoll() {
-    if (winner || battleMode) return;
+    if (winner || battleMode || rolling) return;
 
     let updated = [...players];
     let p = { ...updated[current] };
@@ -207,73 +357,85 @@ export default function App() {
       updated[current] = p;
       setPlayers(updated);
       setMessage(`${p.customName} had to skip this turn.`);
-      addLog(`${p.emoji} ${p.customName} skipped a turn.`);
+      addLog(`${p.customName} skipped a turn.`);
       nextTurn(updated);
       return;
     }
 
-    const d = roll();
-    setDice(d);
+    animateRoll(6, (d) => {
+      setDice(d);
 
-    let newPosition = Math.min(p.position + d, board.length - 1);
-    p.position = newPosition;
-    let type = board[newPosition];
+      let newPosition = Math.min(p.position + d, board.length - 1);
+      p.position = newPosition;
+      let type = board[newPosition];
 
-    let turnMessage = `${p.customName} rolled ${d} and moved to space ${newPosition}.`;
+      let turnMessage = `${p.customName} rolled ${d} and moved to space ${newPosition}.`;
 
-    if (type === "boost") {
-      p.position = Math.min(p.position + 2, board.length - 1);
-      turnMessage += " Boost! Move forward 2.";
-    }
+      if (type === "boost") {
+        p.position = Math.min(p.position + 2, board.length - 1);
+        turnMessage += " Boost! Move forward 2.";
+      }
 
-    if (type === "trap") {
-      p.position = Math.max(p.position - 2, 0);
-      turnMessage += " Trap! Move back 2.";
-    }
+      if (type === "trap") {
+        p.position = Math.max(p.position - 2, 0);
+        turnMessage += " Trap! Move back 2.";
+      }
 
-    if (type === "mystery") {
-      const effects = [
-        () => { p.position = Math.min(p.position + 3, board.length - 1); return "Mystery power! Move forward 3."; },
-        () => { p.position = Math.max(p.position - 3, 0); return "Oops! Move back 3."; },
-        () => { p.trophies += 1; return "Lucky find! Gain 1 trophy."; },
-        () => { p.skip = true; return "Sticky slime! Skip your next turn."; }
-      ];
-      turnMessage += " " + effects[roll(4) - 1]();
-    }
+      if (type === "mystery") {
+        const effects = [
+          () => { p.position = Math.min(p.position + 3, board.length - 1); return "Mystery power! Move forward 3."; },
+          () => { p.position = Math.max(p.position - 3, 0); return "Oops! Move back 3."; },
+          () => { p.trophies += 1; return "Lucky find! Gain 1 trophy."; },
+          () => { p.skip = true; return "Sticky slime! Skip your next turn."; }
+        ];
+        turnMessage += " " + effects[roll(4) - 1]();
+      }
 
-    updated[current] = p;
-    setPlayers(updated);
+      if (type === "restart") {
+        p.position = 0;
+        turnMessage += " Back to start!";
+      }
 
-    // Check for battle
-    const opponents = updated.filter((x, i) => i !== current && x.position === p.position);
-    if (board[p.position] === "battle" || opponents.length > 0) {
-      const opponent = opponents[0] || updated.filter((_, i) => i !== current)[roll(updated.length - 1) - 1];
+      updated[current] = p;
+      setPlayers(updated);
 
-      setBattleMode(true);
-      setBattleAttacker(p);
-      setBattleDefender(opponent);
-      setBattlePhase('attacker');
-      setAttackerRoll(null);
-      setDefenderRoll(null);
+      if (p.trophies >= TROPHY_WIN_COUNT) {
+        setTrophyWinner(p);
+        return;
+      }
 
-      setMessage(`⚔️ BATTLE! ${p.customName} landed on a battle space vs ${opponent.customName}! ${p.customName}, roll for battle!`);
-      addLog(`⚔️ Battle! ${p.customName} vs ${opponent.customName}`);
-      return;
-    }
+      // Check for battle
+      const opponents = updated.filter((x, i) => i !== current && x.position === p.position);
+      if (board[p.position] === "battle" || opponents.length > 0) {
+        const opponent = opponents[0] || updated.filter((_, i) => i !== current)[roll(updated.length - 1) - 1];
 
-    if (p.position >= board.length - 1) {
-      const finalScore = roll(20) + p.trophies + p.power;
-      const finalWinner = { ...p, finalScore };
-      setWinner(finalWinner);
-      setMessage(`${p.customName} reached the Final Battle and wins Battle Showdown! Final score: ${finalScore}`);
-      addLog(`🏆 ${p.customName} wins Battle Showdown!`);
-      return;
-    }
+        setBattleMode(true);
+        setBattleAttacker(p);
+        setBattleDefender(opponent);
+        setBattlePhase('attacker');
+        setAttackerRoll(null);
+        setDefenderRoll(null);
+        setDice(null);
 
-    setPlayers(updated);
-    setMessage(turnMessage);
-    addLog(turnMessage);
-    nextTurn(updated);
+        setMessage(`⚔️ BATTLE! ${p.customName} landed on a battle space vs ${opponent.customName}! ${p.customName}, roll for battle!`);
+        addLog(`⚔️ Battle! ${p.customName} vs ${opponent.customName}`);
+        return;
+      }
+
+      if (p.position >= board.length - 1) {
+        const finalScore = roll(20) + p.trophies + p.power;
+        const finalWinner = { ...p, finalScore };
+        setWinner(finalWinner);
+        setMessage(`${p.customName} reached the Final Battle and wins Battle Showdown! Final score: ${finalScore}`);
+        addLog(`🏆 ${p.customName} wins Battle Showdown!`);
+        return;
+      }
+
+      setPlayers(updated);
+      setMessage(turnMessage);
+      addLog(turnMessage);
+      nextTurn(updated);
+    });
   }
 
   return (
@@ -294,12 +456,71 @@ export default function App() {
           <button className="secondary" onClick={() => reset()}>
             <RotateCcw size={18} /> Reset
           </button>
+          <button className="theme-toggle" onClick={toggleTheme} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}>
+            {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+            {theme === "dark" ? "Light" : "Dark"}
+          </button>
         </div>
       </header>
 
+      {introActive && (
+        <div className="intro-layer" role="status" aria-live="polite">
+          <div className="intro-card">
+            <div className="intro-burst">
+              <Swords size={34} />
+            </div>
+            <p className="intro-kicker">Element Clash</p>
+            <h2>Let the battle begin!</h2>
+            <div className="intro-roster">
+              {players.map((p, index) => (
+                <div className="intro-player" style={{ "--player-color": p.color }} key={p.id}>
+                  <div className="avatar intro-avatar" style={{ background: p.color }}>
+                    <PlayerIcon player={p} size={30} />
+                  </div>
+                  <strong>{p.customName}</strong>
+                  {index < players.length - 1 && <span className="intro-vs">VS</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {winner && (
+        <div className="intro-layer victory-layer" role="status" aria-live="polite">
+          <div className="intro-card victory-card">
+            <div className="victory-confetti" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+              <span />
+              <span />
+              <span />
+            </div>
+            <div className="intro-burst victory-burst">
+              <Trophy size={38} />
+            </div>
+            <p className="intro-kicker">Battle Complete</p>
+            <h2>{winner.customName} wins!</h2>
+            <div className="victory-player" style={{ "--player-color": winner.color }}>
+              <div className="avatar victory-avatar" style={{ background: winner.color }}>
+                <PlayerIcon player={winner} size={44} />
+              </div>
+              <div>
+                <strong>{winner.customName}</strong>
+                <p>{winner.trophies} trophies • Final score {winner.finalScore}</p>
+              </div>
+            </div>
+            <button className="roll victory-reset" onClick={() => reset()}>
+              <RotateCcw size={20} /> Play Again
+            </button>
+          </div>
+        </div>
+      )}
+
       {winner && (
         <div className="winner">
-          <Trophy /> {winner.emoji} {winner.customName} wins Battle Showdown!
+          <Trophy /> <PlayerIcon player={winner} /> {winner.customName} wins Battle Showdown!
         </div>
       )}
 
@@ -310,7 +531,9 @@ export default function App() {
             <div className="name-setup">
               {characters.slice(0, playerCount).map((c) => (
                 <div key={c.id} className="name-input-row">
-                  <div className="avatar" style={{ background: c.color }}>{c.emoji}</div>
+                  <div className="avatar" style={{ background: c.color }}>
+                    <PlayerIcon player={c} />
+                  </div>
                   <input
                     type="text"
                     placeholder={c.name}
@@ -318,7 +541,17 @@ export default function App() {
                     onChange={(e) => updateName(c.id, e.target.value)}
                     className="name-input"
                   />
-                  <span className="power-badge">Power +{c.power}</span>
+                  <label className="power-control">
+                    <span>Power</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="10"
+                      value={customPowers[c.id] || 1}
+                      onChange={(e) => updatePower(c.id, e.target.value)}
+                      className="power-input"
+                    />
+                  </label>
                 </div>
               ))}
             </div>
@@ -332,46 +565,64 @@ export default function App() {
         <section className="panel board-panel">
           <div className="turn-card">
             <div>
-              <span>Current Turn</span>
-              <strong style={{ color: currentPlayer.color }}>{currentPlayer.emoji} {currentPlayer.customName}</strong>
+              <span>{turnLabel}</span>
+              <strong className="turn-player" style={{ color: turnDisplayPlayer.color }}>
+                <PlayerIcon player={turnDisplayPlayer} size={24} /> {turnDisplayPlayer.customName}
+              </strong>
             </div>
             {battleMode ? (
-              <button className="roll battle-btn" onClick={handleBattleRoll}>
-                <Dice5 /> {battlePhase === 'attacker' ? "Attack Roll" : "Defend Roll"}
+              <button className={`roll battle-btn ${battlePhase === 'result' ? "continue-btn" : ""}`} onClick={handleBattleRoll} disabled={rolling}>
+                {battleRoller ? <PlayerIcon player={battleRoller} size={20} /> : <Dice5 />}
+                {rolling && battlePhase !== 'result' ? "Rolling..." : battleButtonLabel}
               </button>
             ) : (
-              <button className="roll" onClick={handleRoll}>
-                <Dice5 /> Roll Dice
+              <button className="roll" onClick={handleRoll} disabled={rolling}>
+                <Dice5 /> {rolling ? "Rolling..." : "Roll Dice"}
               </button>
             )}
           </div>
 
           {battleMode && (
-            <div className="battle-display">
-              <div className="battle-player attacker">
-                <div className="avatar" style={{ background: battleAttacker.color }}>{battleAttacker.emoji}</div>
+            <div className={`battle-display ${battleWinnerId ? "battle-has-winner" : ""}`}>
+              {battleWinnerId && (
+                <div className="battle-confetti" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              )}
+              <div className={`battle-player attacker ${battleWinnerId === battleAttacker.id ? "battle-winner" : ""} ${battleRoller?.id === battleAttacker.id ? "battle-roller" : ""}`}>
+                <div className="avatar" style={{ background: battleAttacker.color }}>
+                  <PlayerIcon player={battleAttacker} />
+                </div>
                 <span>{battleAttacker.customName}</span>
+                {battleRoller?.id === battleAttacker.id && <strong className="battle-roll-label">Roll now</strong>}
+                {battleWinnerId === battleAttacker.id && <strong className="battle-win-label">Battle winner</strong>}
                 {attackerRoll !== null && (
-                  <div className="battle-score">
-                    {attackerRoll} + {battleAttacker.power} + {battleAttacker.trophies} = {attackerRoll + battleAttacker.power + battleAttacker.trophies}
-                  </div>
+                  <BattleScore rollValue={attackerRoll} player={battleAttacker} isWinner={battleWinnerId === battleAttacker.id} />
                 )}
               </div>
               <div className="battle-vs">VS</div>
-              <div className="battle-player defender">
-                <div className="avatar" style={{ background: battleDefender.color }}>{battleDefender.emoji}</div>
+              <div className={`battle-player defender ${battleWinnerId === battleDefender.id ? "battle-winner" : ""} ${battleRoller?.id === battleDefender.id ? "battle-roller" : ""}`}>
+                <div className="avatar" style={{ background: battleDefender.color }}>
+                  <PlayerIcon player={battleDefender} />
+                </div>
                 <span>{battleDefender.customName}</span>
+                {battleRoller?.id === battleDefender.id && <strong className="battle-roll-label">Roll now</strong>}
+                {battleWinnerId === battleDefender.id && <strong className="battle-win-label">Battle winner</strong>}
                 {defenderRoll !== null && (
-                  <div className="battle-score">
-                    {defenderRoll} + {battleDefender.power} + {battleDefender.trophies} = {defenderRoll + battleDefender.power + battleDefender.trophies}
-                  </div>
+                  <BattleScore rollValue={defenderRoll} player={battleDefender} isWinner={battleWinnerId === battleDefender.id} />
                 )}
               </div>
             </div>
           )}
 
           <div className="dice-row">
-            <div className="dice">{dice || "?"}</div>
+            <div className={`dice ${rolling ? "rolling" : ""}`}>
+              <DiceFace value={rollingValue || dice} />
+            </div>
             <p>{message}</p>
           </div>
 
@@ -383,7 +634,7 @@ export default function App() {
                 <div className="tokens">
                   {(playerBySpace[index] || []).map((p) => (
                     <span key={p.id} title={p.customName} style={{ background: p.color }}>
-                      {p.emoji}
+                      <PlayerIcon player={p} size={18} />
                     </span>
                   ))}
                 </div>
@@ -396,7 +647,9 @@ export default function App() {
           <h2><Swords size={20}/> Players</h2>
           {players.map((p, index) => (
             <div className={`player ${index === current ? "active" : ""}`} key={p.id}>
-              <div className="avatar" style={{ background: p.color }}>{p.emoji}</div>
+              <div className="avatar" style={{ background: p.color }}>
+                <PlayerIcon player={p} />
+              </div>
               <div>
                 <strong>{p.customName}</strong>
                 <p>Space {p.position} • Power +{p.power}</p>
@@ -413,6 +666,7 @@ export default function App() {
           <div className="rules">
             <h3>Spaces</h3>
             <p><b>Battle:</b> roll + power + trophies. Winner gets a trophy.</p>
+            <p><b>Trophies:</b> collect 4 to win instantly.</p>
             <p><b>+2:</b> move forward two spaces.</p>
             <p><b>-2:</b> move back two spaces.</p>
             <p><b>?:</b> random mystery effect.</p>
