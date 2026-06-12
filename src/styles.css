@@ -1155,6 +1155,10 @@ body[data-theme="light"] .victory-layer {
   text-transform: uppercase;
 }
 
+.battle-winner .element-bonus {
+  color: #042f2e;
+}
+
 .battle-confetti span {
   position: absolute;
   top: -18px;
