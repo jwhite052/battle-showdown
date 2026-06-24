@@ -101,6 +101,21 @@ button, select {
   margin-bottom: 20px;
 }
 
+.brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
+}
+
+.game-logo {
+  width: clamp(82px, 10vw, 126px);
+  aspect-ratio: 1;
+  object-fit: contain;
+  flex: 0 0 auto;
+  filter: drop-shadow(0 10px 0 rgba(0,0,0,.18)) drop-shadow(0 16px 22px rgba(0,0,0,.22));
+}
+
 .eyebrow {
   color: var(--eyebrow);
   font-weight: 800;
@@ -1246,6 +1261,14 @@ body[data-theme="light"] .victory-layer {
   .controls {
     justify-content: start;
     flex-wrap: wrap;
+  }
+
+  .brand-lockup {
+    align-items: flex-start;
+  }
+
+  .game-logo {
+    width: 82px;
   }
 
   .board {

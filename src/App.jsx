@@ -804,10 +804,13 @@ export default function App() {
     <div className="app">
       <audio ref={musicRef} src={MUSIC_SRC} preload="auto" loop />
       <header className="hero">
-        <div>
-          <p className="eyebrow">Race • Battle • Power Up</p>
-          <h1>Battle Showdown!</h1>
-          <p className="subtitle">Roll the dice, move across the board, battle rivals, and reach the Final Battle first.</p>
+        <div className="brand-lockup">
+          <img className="game-logo" src="/images/battle-showdown-logo.png" alt="" />
+          <div>
+            <p className="eyebrow">Race • Battle • Power Up</p>
+            <h1>Battle Showdown!</h1>
+            <p className="subtitle">Roll the dice, move across the board, battle rivals, and reach the Final Battle first.</p>
+          </div>
         </div>
         <div className="controls">
           <label>Players</label>
