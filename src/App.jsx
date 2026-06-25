@@ -30,6 +30,9 @@ const elementStrengths = {
   lightning: "water"
 };
 const elementById = Object.fromEntries(elementTypes.map(element => [element.id, element]));
+const defaultNames = Object.fromEntries(characters.map(c => [c.id, c.name]));
+const defaultPowers = Object.fromEntries(characters.map(c => [c.id, 1]));
+const defaultElements = Object.fromEntries(characters.map(c => [c.id, c.defaultElementId]));
 
 const spaceLabels = {
   start: "START",
@@ -139,23 +142,17 @@ function BattleScore({ rollValue, player, opponent, isWinner = false }) {
 export default function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem("battle-showdown-theme") || "dark");
   const [playerCount, setPlayerCount] = useState(2);
-  const [customNames, setCustomNames] = useState(() =>
-    Object.fromEntries(characters.map(c => [c.id, c.name]))
-  );
-  const [customPowers, setCustomPowers] = useState(() =>
-    Object.fromEntries(characters.map(c => [c.id, 1]))
-  );
-  const [customElements, setCustomElements] = useState(() =>
-    Object.fromEntries(characters.map(c => [c.id, c.defaultElementId]))
-  );
+  const [customNames, setCustomNames] = useState(() => defaultNames);
+  const [customPowers, setCustomPowers] = useState(() => defaultPowers);
+  const [customElements, setCustomElements] = useState(() => defaultElements);
   const [playerOrder, setPlayerOrder] = useState(defaultCharacterOrder);
   const [draggedPlayerId, setDraggedPlayerId] = useState(null);
   const [players, setPlayers] = useState(() => makePlayers(
     2,
     {},
-    Object.fromEntries(characters.map(c => [c.id, 1])),
+    defaultPowers,
     defaultCharacterOrder,
-    Object.fromEntries(characters.map(c => [c.id, c.defaultElementId]))
+    defaultElements
   ));
   const [current, setCurrent] = useState(0);
   const [dice, setDice] = useState(null);
@@ -312,6 +309,28 @@ export default function App() {
   function changeCount(count) {
     setPlayerCount(count);
     reset(count);
+  }
+
+  function resetSetupForm() {
+    setCustomNames(defaultNames);
+    setCustomPowers(defaultPowers);
+    setCustomElements(defaultElements);
+    setPlayerOrder(defaultCharacterOrder);
+    setPlayerCount(2);
+    setPlayers(makePlayers(2, defaultNames, defaultPowers, defaultCharacterOrder, defaultElements));
+    setCurrent(0);
+    setDice(null);
+    setMoving(false);
+    setHoppingPlayerIds([]);
+    moveTimeoutsRef.current.forEach(timeout => window.clearTimeout(timeout));
+    moveTimeoutsRef.current = [];
+    setWinner(null);
+    setGameStarted(false);
+    setIntroActive(false);
+    clearBattleState();
+    setNewGameConfirmOpen(false);
+    setMessage("Choose players, then roll to begin Battle Showdown!");
+    setLog(["Player setup reset!"]);
   }
 
   function startGame() {
@@ -1018,7 +1037,7 @@ export default function App() {
             <option value={3}>3</option>
             <option value={4}>4</option>
           </select>
-          <button className="secondary" onClick={() => reset()}>
+          <button className="secondary" onClick={resetSetupForm}>
             <RotateCcw size={18} /> Reset
           </button>
         </div>
