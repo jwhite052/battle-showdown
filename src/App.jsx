@@ -805,6 +805,11 @@ export default function App() {
       <audio ref={musicRef} src={MUSIC_SRC} preload="auto" loop />
       <nav className="top-nav" aria-label="Game controls">
         <div className="controls">
+          {gameStarted && !introActive && (
+            <button className="secondary" onClick={() => reset()}>
+              <RotateCcw size={18} /> New Game
+            </button>
+          )}
           <button className="rules-toggle" onClick={() => setRulesOpen(true)}>
             <HelpCircle size={18} /> Rules
           </button>
@@ -977,17 +982,19 @@ export default function App() {
         </div>
       )}
 
-      <div className="game-toolbar" aria-label="Game setup controls">
-        <label>Players</label>
-        <select value={playerCount} onChange={(e) => changeCount(Number(e.target.value))}>
-          <option value={2}>2</option>
-          <option value={3}>3</option>
-          <option value={4}>4</option>
-        </select>
-        <button className="secondary" onClick={() => reset()}>
-          <RotateCcw size={18} /> Reset
-        </button>
-      </div>
+      {!gameStarted && (
+        <div className="game-toolbar" aria-label="Game setup controls">
+          <label>Players</label>
+          <select value={playerCount} onChange={(e) => changeCount(Number(e.target.value))}>
+            <option value={2}>2</option>
+            <option value={3}>3</option>
+            <option value={4}>4</option>
+          </select>
+          <button className="secondary" onClick={() => reset()}>
+            <RotateCcw size={18} /> Reset
+          </button>
+        </div>
+      )}
 
       {!gameStarted ? (
         <main className="layout">
