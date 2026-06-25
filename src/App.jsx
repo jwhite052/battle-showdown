@@ -168,6 +168,7 @@ export default function App() {
   const [gameStarted, setGameStarted] = useState(false);
   const [introActive, setIntroActive] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
+  const [newGameConfirmOpen, setNewGameConfirmOpen] = useState(false);
   const [musicOn, setMusicOn] = useState(false);
   const [soundOn, setSoundOn] = useState(true);
   const [hoppingPlayerIds, setHoppingPlayerIds] = useState([]);
@@ -303,6 +304,7 @@ export default function App() {
     setAttackerRoll(null);
     setDefenderRoll(null);
     setBattlePhase(null);
+    setNewGameConfirmOpen(false);
     setMessage("Choose players, then roll to begin Battle Showdown!");
     setLog(["New game started!"]);
   }
@@ -806,7 +808,7 @@ export default function App() {
       <nav className="top-nav" aria-label="Game controls">
         <div className="controls">
           {gameStarted && !introActive && (
-            <button className="secondary" onClick={() => reset()}>
+            <button className="secondary" onClick={() => setNewGameConfirmOpen(true)}>
               <RotateCcw size={18} /> New Game
             </button>
           )}
@@ -916,6 +918,32 @@ export default function App() {
                   <li>Skip your next turn.</li>
                 </ul>
               </article>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {newGameConfirmOpen && (
+        <div className="modal-layer" role="dialog" aria-modal="true" aria-labelledby="new-game-title">
+          <button className="modal-backdrop" aria-label="Keep playing" onClick={() => setNewGameConfirmOpen(false)} />
+          <section className="confirm-modal">
+            <div className="modal-header">
+              <div>
+                <p className="intro-kicker">Start Over</p>
+                <h2 id="new-game-title">Start a new game?</h2>
+              </div>
+              <button className="modal-close" aria-label="Keep playing" onClick={() => setNewGameConfirmOpen(false)}>
+                <X size={20} />
+              </button>
+            </div>
+            <p className="confirm-copy">Your current Battle Showdown progress will be lost. Player setup will stay ready for a fresh round.</p>
+            <div className="confirm-actions">
+              <button className="secondary" onClick={() => setNewGameConfirmOpen(false)}>
+                Keep Playing
+              </button>
+              <button className="danger-action" onClick={() => reset()}>
+                <RotateCcw size={18} /> Start New Game
+              </button>
             </div>
           </section>
         </div>
